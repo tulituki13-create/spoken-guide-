@@ -1,0 +1,517 @@
+import React, { useEffect, useRef, useState } from "react";
+import { Mic, Square, Loader, AlertCircle, MicOff, Check, Volume2 } from "lucide-react";
+import { MicState } from "../types";
+
+function pcmToBase64(pcmData: Float32Array): string {
+  const buffer = new ArrayBuffer(pcmData.length * 2);
+  const view = new DataView(buffer);
+  for (let i = 0; i < pcmData.length; i++) {
+    let s = Math.max(-1, Math.min(1, pcmData[i]));
+    s = s < 0 ? s * 0x8000 : s * 0x7fff;
+    view.setInt16(i * 2, s, true);
+  }
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return window.btoa(binary);
+}
+
+function base64ToPcm(base64: string): Float32Array {
+  const binary = window.atob(base64);
+  const buffer = new ArrayBuffer(binary.length);
+  const view = new DataView(buffer);
+  for (let i = 0; i < binary.length; i++) {
+    view.setUint8(i, binary.charCodeAt(i));
+  }
+  const int16Array = new Int16Array(buffer);
+  const float32Array = new Float32Array(int16Array.length);
+  for (let i = 0; i < int16Array.length; i++) {
+    float32Array[i] = int16Array[i] / 32768;
+  }
+  return float32Array;
+}
+
+function createWavBase64(chunks: Float32Array[]): string {
+  const totalLength = chunks.reduce((acc, val) => acc + val.length, 0);
+  const combined = new Float32Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.length;
+  }
+  const pcm16 = new Int16Array(totalLength);
+  for (let i = 0; i < totalLength; i++) {
+    let s = Math.max(-1, Math.min(1, combined[i]));
+    pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  const wavBuffer = new ArrayBuffer(44 + pcm16.byteLength);
+  const view = new DataView(wavBuffer);
+  view.setUint32(0, 1380533830, false);
+  view.setUint32(4, 36 + pcm16.byteLength, true);
+  view.setUint32(8, 1463899717, false);
+  view.setUint32(12, 1718449184, false);
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 16000, true);
+  view.setUint32(28, 16000 * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  view.setUint32(36, 1684108385, false);
+  view.setUint32(40, pcm16.byteLength, true);
+  new Int16Array(wavBuffer, 44).set(pcm16);
+  let binary = '';
+  const bytes = new Uint8Array(wavBuffer);
+  for (let i = 0; i < bytes.length; i += 8192) {
+     binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + 8192)));
+  }
+  return window.btoa(binary);
+}
+
+interface LiveSessionProps {
+  selectedTutor: string;
+  scenarioId: string | null;
+  pdfStoreId?: string | null;
+  onTranscript: (text: string, isModel: boolean, isFinal: boolean) => void;
+  onSessionEnd?: (durationSec: number) => void;
+}
+
+const VOICES = [
+  { id: "Zephyr", label: "Zephyr (গভীর)", desc: "গভীর ও স্পষ্ট পুরুষ", enDesc: "Deep Narrator", emoji: "🎙️", accent: "Clear, Deep" },
+  { id: "Puck", label: "Puck (সাধারণ)", desc: "বন্ধুত্বপূর্ণ ও প্রাণবন্ত পুরুষ", enDesc: "Friendly Male", emoji: "👨", accent: "Lively, Bright" },
+  { id: "Kore", label: "Kore (শিশু)", desc: "কিউট ও হাসিখুশি শিশু", enDesc: "Child Voice Model", emoji: "👧", accent: "High-range, Cute" },
+  { id: "Charon", label: "Charon (শান্ত)", desc: "শান্ত ও মার্জিত পুরুষ", enDesc: "Calm Masculine", emoji: "🧔", accent: "Soft, Gentle" },
+  { id: "Fenrir", label: "Fenrir (গম্ভীর)", desc: "গম্ভীর ও বলিষ্ঠ পুরুষ", enDesc: "Deep/Bold Male", emoji: "🧔‍♂️", accent: "Rich, Low-range" },
+  { id: "Aoede-slow", label: "Aoede (ধীরগতি)", desc: "ধীর গতির কথা বলা নারী", enDesc: "Slow Phase Speaking", emoji: "🐢", accent: "Slow, Clear" }
+];
+
+export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTutor, scenarioId, pdfStoreId, onTranscript, onSessionEnd }) => {
+  const [micState, setMicState] = useState<MicState>("ready");
+  const [error, setError] = useState<string | null>(null);
+  const [selectedVoice, setSelectedVoice] = useState<string>("Zephyr");
+  const [isMuted, setIsMuted] = useState<boolean>(false);
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const isActiveRef = useRef<boolean>(false);
+  const isMutedRef = useRef<boolean>(false);
+  
+  const nextStartTimeRef = useRef<number>(0);
+  const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const userAudioChunksRef = useRef<Float32Array[]>([]);
+  const lastModelAudioEndTimeRef = useRef<number>(0);
+  const sessionStartTimeRef = useRef<number>(0);
+  const transcriptIntervalRef = useRef<any>(null);
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+
+  const drawWaveform = () => {
+    if (!canvasRef.current || !analyserRef.current) return;
+    
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    
+    const analyser = analyserRef.current;
+    analyser.fftSize = 512; // Gives a smoother curve
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    
+    const draw = () => {
+      if (!isActiveRef.current) return;
+      animationFrameRef.current = requestAnimationFrame(draw);
+      
+      analyser.getByteTimeDomainData(dataArray);
+      
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(59, 130, 246, 0.8)";
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      
+      ctx.beginPath();
+      
+      const sliceWidth = canvas.width * 1.0 / bufferLength;
+      let x = 0;
+      
+      for (let i = 0; i < bufferLength; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = v * canvas.height / 2;
+        
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+        
+        x += sliceWidth;
+      }
+      
+      ctx.stroke();
+    };
+    
+    draw();
+  };
+
+  const stopSession = () => {
+    const wasActive = micState !== "ready";
+    isActiveRef.current = false;
+    setIsMuted(false);
+    isMutedRef.current = false;
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (transcriptIntervalRef.current) {
+      clearInterval(transcriptIntervalRef.current);
+      transcriptIntervalRef.current = null;
+    }
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    if (processorRef.current && audioCtxRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch (e) {}
+      recognitionRef.current = null;
+    }
+    activeSourcesRef.current.forEach(source => {
+      try { source.stop(); } catch (e) {}
+    });
+    activeSourcesRef.current = [];
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
+    setMicState("ready");
+    if (wasActive && onSessionEnd) {
+      const durationSec = Math.round((Date.now() - sessionStartTimeRef.current) / 1000);
+      onSessionEnd(Math.max(0, durationSec));
+    }
+  };
+
+  const toggleMute = () => {
+    const newMuted = !isMutedRef.current;
+    setIsMuted(newMuted);
+    isMutedRef.current = newMuted;
+    if (streamRef.current) {
+      streamRef.current.getAudioTracks().forEach(t => t.enabled = !newMuted);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      stopSession();
+    };
+  }, []);
+
+  const startSession = async () => {
+    try {
+      isActiveRef.current = true;
+      sessionStartTimeRef.current = Date.now();
+      setError(null);
+      setMicState("thinking");
+
+      // Setup WebSocket
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      let wsUrl = `${protocol}//${window.location.host}/live?tutorName=${encodeURIComponent(selectedTutor)}&voice=${selectedVoice}`;
+      if (scenarioId) {
+        wsUrl += `&scenarioId=${encodeURIComponent(scenarioId)}`;
+      }
+      if (pdfStoreId) {
+        wsUrl += `&pdfId=${encodeURIComponent(pdfStoreId)}`;
+      }
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      // We will handle user transcript via Gemini /api/transcribe by pooling audio chunks
+      ws.onopen = async () => {
+        userAudioChunksRef.current = [];
+        try {
+          const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+          audioCtxRef.current = audioCtx;
+
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+          streamRef.current = stream;
+
+          const source = audioCtx.createMediaStreamSource(stream);
+          const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+          processorRef.current = processor;
+
+          const analyser = audioCtx.createAnalyser();
+          analyserRef.current = analyser;
+
+          source.connect(processor);
+          processor.connect(audioCtx.destination);
+          source.connect(analyser);
+
+          processor.onaudioprocess = (e) => {
+            const pcmData = e.inputBuffer.getChannelData(0);
+            const isModelSpeakingOrJustFinished = activeSourcesRef.current.length > 0 || (Date.now() - lastModelAudioEndTimeRef.current < 1500);
+            const userMuted = isMutedRef.current;
+            
+            if (!isModelSpeakingOrJustFinished && !userMuted) {
+              userAudioChunksRef.current.push(new Float32Array(pcmData));
+            }
+            if (ws.readyState === WebSocket.OPEN && !isModelSpeakingOrJustFinished && !userMuted) {
+              const base64 = pcmToBase64(pcmData);
+              ws.send(JSON.stringify({ audio: base64 }));
+            }
+          };
+
+          setMicState("listening");
+          nextStartTimeRef.current = audioCtx.currentTime + 0.1;
+
+          drawWaveform();
+
+          // Setup speech recognition for user's voice (instead of polling backend API)
+          const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+          if (SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.lang = "bn-IN"; // Covers both Bengali and English
+            
+            recognition.onresult = (event: any) => {
+              if (isMutedRef.current) return;
+              let finalTranscript = '';
+              for (let i = event.resultIndex; i < event.results.length; ++i) {
+                if (event.results[i].isFinal) {
+                  finalTranscript += event.results[i][0].transcript;
+                }
+              }
+              if (finalTranscript.trim()) {
+                onTranscript(finalTranscript.trim(), false, true);
+              }
+            };
+            
+            recognition.onerror = (e: any) => console.log('Speech recognition error', e);
+            
+            recognition.onend = () => {
+              // Restart recognition if session is still active
+              if (isActiveRef.current) {
+                try { recognition.start(); } catch(e) {}
+              }
+            };
+            
+            recognitionRef.current = recognition;
+            try {
+              recognition.start();
+            } catch (err) {
+              console.log("Recognition start error", err);
+            }
+          }
+
+        } catch (e: any) {
+          setError("Microphone error: " + e.message);
+          stopSession();
+        }
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.interrupted) {
+          // Clear remaining audio by advancing start time and stopping active sources
+          activeSourcesRef.current.forEach(source => {
+            try { source.stop(); } catch (e) {}
+          });
+          activeSourcesRef.current = [];
+          lastModelAudioEndTimeRef.current = Date.now();
+          if (audioCtxRef.current) {
+            nextStartTimeRef.current = audioCtxRef.current.currentTime + 0.1;
+          }
+        }
+        if (msg.text) {
+          onTranscript(msg.text, true, true);
+        }
+        if (msg.audio) {
+          if (!audioCtxRef.current) return;
+          const audioCtx = audioCtxRef.current;
+          
+          const pcmData = base64ToPcm(msg.audio);
+          const audioBuffer = audioCtx.createBuffer(1, pcmData.length, 24000);
+          audioBuffer.copyToChannel(pcmData, 0);
+
+          const source = audioCtx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(audioCtx.destination);
+          
+          source.onended = () => {
+             activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
+             lastModelAudioEndTimeRef.current = Date.now();
+          };
+          activeSourcesRef.current.push(source);
+
+          const startTime = Math.max(audioCtx.currentTime, nextStartTimeRef.current);
+          source.start(startTime);
+          nextStartTimeRef.current = startTime + audioBuffer.duration;
+        }
+      };
+
+      ws.onerror = () => {
+        setError("Connection error. Try again.");
+        stopSession();
+      };
+      
+      ws.onclose = () => {
+        stopSession();
+      };
+
+    } catch (e: any) {
+      setError("Setup error: " + e.message);
+      stopSession();
+    }
+  };
+
+  return (
+    <div className="glass-panel rounded-2xl p-6 border-white flex flex-col gap-6 relative overflow-hidden min-h-[420px]">
+      <div className="absolute inset-x-0 bottom-0 h-1.5 bg-gradient-to-r from-blue-400 via-sky-400 to-indigo-400 opacity-60"></div>
+
+      {/* Top Meta info */}
+      <div className="w-full flex justify-between items-center z-10">
+        <span className="text-xxs font-mono font-bold text-slate-400 tracking-wider">
+          ক্লাসরুম // রিয়েল-টাইম লাইভ
+        </span>
+        <div className="flex items-center gap-1.5 text-xs text-blue-600 font-bold bg-blue-50 px-2.5 py-0.5 rounded-full select-none">
+          <Volume2 className="w-3.5 h-3.5 animate-pulse" />
+          রিয়েল-টাইম অডিও (Realtime Audio)
+        </div>
+      </div>
+
+      {/* 1. Custom Voice Selector Card Grid */}
+      <div className="w-full z-10">
+        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+          <span>টিউটরের কণ্ঠস্বর নির্বাচন করুন (Choose AI Voice Option)</span>
+        </h4>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 w-full">
+          {VOICES.map((v) => {
+            const isSelected = selectedVoice === v.id;
+            return (
+              <button
+                key={v.id}
+                onClick={() => setSelectedVoice(v.id)}
+                disabled={micState !== "ready"}
+                type="button"
+                className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all duration-300 relative select-none cursor-pointer ${
+                  isSelected
+                    ? "border-blue-500 bg-blue-50/50 scale-[0.98] shadow-inner"
+                    : "border-slate-100 hover:border-blue-200 hover:bg-white/40 bg-white/20"
+                } ${micState !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
+                title={micState !== "ready" ? "ভয়েস পরিবর্তন করতে সেশন সমাপ্ত করুন (Stop session to change voice)" : `${v.label} - ${v.enDesc}`}
+              >
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <span className="text-xl">{v.emoji}</span>
+                  {isSelected && (
+                    <span className="p-0.5 bg-blue-500 text-white rounded-full">
+                      <Check className="w-2.5 h-2.5" />
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <p className="font-bold text-xs text-slate-800 leading-tight">{v.id}</p>
+                  <p className="text-[9px] text-slate-500 font-medium leading-none mt-0.5">{v.desc}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        {micState !== "ready" && (
+          <p className="text-[10px] text-amber-600 font-medium mt-1.5 text-center bg-amber-50 rounded-md py-1 border border-amber-100/50 animate-pulse">
+            মডেল সেশন সক্রিয় থাকাকালীন ভয়েস পরিবর্তন অসম্ভব। প্রথমে লাল বাটনে চাপ দিয়ে সেশন বন্ধ করুন।
+          </p>
+        )}
+      </div>
+
+      {/* 2. Audio visualizer and main interaction mic button */}
+      <div className="relative flex-1 flex flex-col items-center justify-center min-h-[160px] group z-10 w-full">
+        <canvas 
+          ref={canvasRef} 
+          width={280} 
+          height={60} 
+          className={`absolute pointer-events-none transition-opacity duration-300 ${micState === 'listening' ? 'opacity-100' : 'opacity-0'} z-0`}
+        />
+        
+        <div className="flex items-center justify-center w-full gap-6 z-10 relative">
+          {micState === "listening" && (
+            <button
+              onClick={toggleMute}
+              className={`flex items-center justify-center w-12 h-12 rounded-full transition-all duration-300 shadow-md border ${
+                isMuted ? 'bg-red-50 text-red-500 border-red-200 hover:bg-red-100' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+              }`}
+              title={isMuted ? "Unmute" : "Mute"}
+            >
+              {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+            </button>
+          )}
+
+          <div className="relative flex items-center justify-center">
+            {micState === "listening" && (
+              <>
+                <div className="absolute w-28 h-28 bg-blue-400 opacity-20 rounded-full animate-ping"></div>
+                <div className="absolute w-32 h-32 bg-blue-300 opacity-10 rounded-full animate-pulse delay-75"></div>
+              </>
+            )}
+            {micState === "thinking" && (
+              <div className="absolute w-24 h-24 border-4 border-t-blue-500 border-slate-100 rounded-full animate-spin"></div>
+            )}
+
+            <button
+              onClick={micState === "ready" ? startSession : stopSession}
+              disabled={micState === "thinking"}
+              className={`relative flex items-center justify-center w-20 h-20 rounded-full shadow-lg transition-all duration-300 z-10 
+                ${micState === 'listening' ? 'bg-red-500 hover:bg-red-600 scale-105 shadow-red-200 shadow-xl' : ''}
+                ${micState === 'ready' ? 'bg-blue-500 hover:bg-blue-600 hover:scale-105 hover:shadow-blue-200 shadow-xl' : ''}
+                ${micState === 'thinking' ? 'bg-slate-300 cursor-wait' : 'cursor-pointer'}
+              `}
+            >
+              {micState === "ready" && <Mic className="w-8 h-8 text-white" />}
+              {micState === "listening" && <Square className="w-6 h-6 text-white rounded-sm" />}
+              {micState === "thinking" && <Loader className="w-8 h-8 text-white animate-spin" />}
+            </button>
+          </div>
+
+          {micState === "listening" && (
+            <div className="w-12 h-12 invisible"></div>
+          )}
+        </div>
+      </div>
+
+      <div className="text-center z-10 w-full min-h-[40px] flex flex-col justify-center pb-2">
+        {micState === "ready" && (
+          <p className="text-sm font-semibold text-slate-600">
+            <span className="text-blue-600">{selectedTutor}</span>-এর সাথে লাইভ আলোচনা করতে ট্যাপ করুন
+          </p>
+        )}
+        {micState === "listening" && (
+          <p className="text-sm font-semibold text-red-600">
+            লাইভ স্ট্রিম চলছে। স্বাভাবিকভাবে কথা বলুন।
+          </p>
+        )}
+      </div>
+
+      {error && (
+        <div className="w-full flex flex-col items-center bg-red-50 border border-red-100 rounded-xl p-3 z-10">
+          <div className="flex items-center gap-1.5 text-xs text-red-600 font-semibold text-center leading-sm">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            {error}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

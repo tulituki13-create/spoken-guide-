@@ -1,0 +1,10 @@
+{
+  "name": "Buddy - English Voice Tutor",
+  "description": "A warm, patient, and encouraging AI English tutor for free-hand live conversational practice.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
