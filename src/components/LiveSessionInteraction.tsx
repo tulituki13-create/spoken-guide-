@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Mic, Square, Loader, AlertCircle, MicOff, Check, Volume2 } from "lucide-react";
+import React, { useEffect, useRef, useState, useContext } from "react";
+import { Mic, Square, Loader, AlertCircle, MicOff, Check, Volume2, Lock } from "lucide-react";
 import { MicState } from "../types";
+import { AuthContext } from "../AuthContext";
 
 function pcmToBase64(pcmData: Float32Array): string {
   const buffer = new ArrayBuffer(pcmData.length * 2);
@@ -81,6 +82,7 @@ interface LiveSessionProps {
 }
 
 export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTutor, scenarioId, pdfStoreId, selectedVoice = "Zephyr", onTranscript, onSessionEnd, isTimeExhausted }) => {
+  const { user } = useContext(AuthContext);
   const [micState, setMicState] = useState<MicState>("ready");
   const [error, setError] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -208,6 +210,7 @@ export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTut
   };
 
   const toggleMute = () => {
+    if (isTimeExhausted) return; // Disallow unmuting if time is exhausted
     const newMuted = !isMutedRef.current;
     setIsMuted(newMuted);
     isMutedRef.current = newMuted;
@@ -218,6 +221,10 @@ export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTut
 
   useEffect(() => {
     if (scenarioId) {
+      if (isTimeExhausted && !user) {
+        setError("আপনার ফ্রি ট্রায়াল লিমিট শেষ হয়ে গেছে। আবার সেশন শুরু করতে দয়া করে লগইন করুন। (Free trial limit reached. Please log in to start talking again.)");
+        return;
+      }
       const timer = setTimeout(() => {
         startSession();
       }, 150);
@@ -228,7 +235,7 @@ export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTut
     } else {
       stopSession();
     }
-  }, [scenarioId, selectedVoice, selectedTutor]);
+  }, [scenarioId, selectedVoice, selectedTutor, isTimeExhausted, user]);
 
   useEffect(() => {
     if (isTimeExhausted && isActiveRef.current && wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !hasNotifiedTimeLimit) {
@@ -253,6 +260,11 @@ export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTut
   }, [isTimeExhausted, hasNotifiedTimeLimit]);
 
   const startSession = async () => {
+    if (isTimeExhausted && !user) {
+      setError("আপনার ফ্রি ট্রায়াল লিমিট শেষ হয়ে গেছে। আবার সেশন শুরু করতে দয়া করে লগইন করুন। (Free trial limit reached. Please log in to start talking again.)");
+      setMicState("ready");
+      return;
+    }
     try {
       isActiveRef.current = true;
       sessionStartTimeRef.current = Date.now();
@@ -454,9 +466,10 @@ export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTut
           {micState === "listening" && (
             <button
               onClick={toggleMute}
+              disabled={isTimeExhausted}
               className={`flex items-center justify-center w-12 h-12 rounded-full transition-all duration-300 shadow-md border ${
                 isMuted ? 'bg-red-50 text-red-500 border-red-200 hover:bg-red-100' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
-              }`}
+              } ${isTimeExhausted ? 'opacity-50 cursor-not-allowed' : ''}`}
               title={isMuted ? "Unmute" : "Mute"}
             >
               {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}

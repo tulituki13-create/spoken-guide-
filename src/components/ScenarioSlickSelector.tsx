@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useContext } from "react";
 import { Scenario, VOICES } from "../types";
-import { BookOpen, HelpCircle, Star, PlayCircle, Layers, CheckCircle2, ChevronDown, Sparkles, FileText } from "lucide-react";
+import { BookOpen, HelpCircle, Star, PlayCircle, Layers, CheckCircle2, ChevronDown, Sparkles, FileText, Lock } from "lucide-react";
 import { LiveSessionInteraction } from "./LiveSessionInteraction";
+import { AuthContext } from "../AuthContext";
 
 interface ScenarioSlickSelectorProps {
   selectedScenarioId: string | null;
@@ -29,6 +30,7 @@ export const ScenarioSlickSelector: React.FC<ScenarioSlickSelectorProps> = ({
   onSessionEnd,
   isTimeExhausted,
 }) => {
+  const { user } = useContext(AuthContext);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [isVoiceDropdownOpen, setIsVoiceDropdownOpen] = useState(false);
 
@@ -158,14 +160,20 @@ export const ScenarioSlickSelector: React.FC<ScenarioSlickSelectorProps> = ({
         <div className={`grid gap-4 ${selectedScenarioId ? "lg:col-span-6 grid-cols-1" : "lg:col-span-12 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"}`}>
           {scenarios.map((scene) => {
             const isSelected = scene.id === selectedScenarioId;
+            const isCardLocked = isTimeExhausted && !user;
             return (
               <div
                 key={scene.id}
-                onClick={() => onSelectScenario(scene.id)}
-                className={`p-5 rounded-2xl glass-panel text-left flex flex-col justify-between cursor-pointer transition-all duration-300 relative border-2 ${
-                  isSelected
-                    ? "border-blue-500/80 bg-blue-50/20 scale-[0.98] shadow-inner"
-                    : "border-white hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5"
+                onClick={() => {
+                  if (isCardLocked) return;
+                  onSelectScenario(scene.id);
+                }}
+                className={`p-5 rounded-2xl glass-panel text-left flex flex-col justify-between transition-all duration-300 relative border-2 ${
+                  isCardLocked
+                    ? "border-red-100 bg-slate-100/50 opacity-65 cursor-not-allowed"
+                    : isSelected
+                    ? "border-blue-500/80 bg-blue-50/20 scale-[0.98] shadow-inner cursor-pointer"
+                    : "border-white hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 cursor-pointer"
                 }`}
               >
                 <div>
@@ -180,24 +188,33 @@ export const ScenarioSlickSelector: React.FC<ScenarioSlickSelectorProps> = ({
                     </span>
                     <span
                       className={`text-[9px] font-mono font-black uppercase px-2.5 py-0.5 rounded-full ${
-                        scene.difficulty === "সহজ"
+                        isCardLocked
+                          ? "bg-slate-100 text-slate-400"
+                          : scene.difficulty === "সহজ"
                           ? "bg-emerald-50 text-emerald-600"
                           : scene.difficulty === "মাঝারি"
                           ? "bg-amber-50 text-amber-600"
                           : "bg-red-50 text-red-600"
                       }`}
                     >
-                      {scene.difficulty || "মাঝারি"}
+                      {isCardLocked ? "Locked" : scene.difficulty || "মাঝারি"}
                     </span>
                   </div>
                   <h4 className="font-display font-black text-slate-800 text-sm mb-1">{scene.name}</h4>
                   <p className="text-xs font-medium text-slate-500 leading-relaxed lines-2 mb-4">{scene.description}</p>
                 </div>
 
-                <div className="flex items-center text-xxs font-mono font-extrabold text-blue-500 mt-2">
-                  <span>{isSelected ? "বর্তমানে চলছে" : "রোলপ্লে শুরু করুন"}</span>
-                  <PlayCircle className="w-4 h-4 ml-1.5 shrink-0" />
-                </div>
+                {isCardLocked ? (
+                  <div className="flex items-center text-xxs font-mono font-extrabold text-red-500 mt-2">
+                    <span>লক করা (Locked)</span>
+                    <Lock className="w-3.5 h-3.5 ml-1.5 shrink-0 text-red-500 animate-pulse" />
+                  </div>
+                ) : (
+                  <div className="flex items-center text-xxs font-mono font-extrabold text-blue-500 mt-2">
+                    <span>{isSelected ? "বর্তমানে চলছে" : "রোলপ্লে শুরু করুন"}</span>
+                    <PlayCircle className="w-4 h-4 ml-1.5 shrink-0" />
+                  </div>
+                )}
               </div>
             );
           })}
