@@ -1,11 +1,16 @@
 import React, { useState } from "react";
-import { Sparkles, Edit2, Check, UserCircle } from "lucide-react";
+import { Sparkles, Edit2, Check, UserCircle, Clock, ShieldCheck, UserPlus } from "lucide-react";
+import { User } from "../AuthContext";
 
 interface WelcomeHeaderProps {
   studentName: string;
   setStudentName: (name: string) => void;
   selectedTutor: string;
   setSelectedTutor: (tutor: string) => void;
+  user: User | null;
+  anonTimeLeft: number;
+  onAuthClick: () => void;
+  onLogout: () => void;
 }
 
 export const WelcomeHeader: React.FC<WelcomeHeaderProps> = ({
@@ -13,6 +18,10 @@ export const WelcomeHeader: React.FC<WelcomeHeaderProps> = ({
   setStudentName,
   selectedTutor,
   setSelectedTutor,
+  user,
+  anonTimeLeft,
+  onAuthClick,
+  onLogout
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [tempName, setTempName] = useState(studentName);
@@ -24,57 +33,89 @@ export const WelcomeHeader: React.FC<WelcomeHeaderProps> = ({
     setIsEditing(false);
   };
 
+  const displayName = user ? user.username : studentName;
+  
+  const activeTimeLeft = user ? user.timeLeft : anonTimeLeft;
+  const minutesLeft = Math.floor(activeTimeLeft / 60);
+  const secondsLeft = activeTimeLeft % 60;
+
   return (
     <div className="glass-panel rounded-2xl p-6 border-white shadow-sm transition-all duration-300">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div className="flex items-start gap-4">
+        <div className="flex items-start gap-4 flex-1">
           <div className="w-12 h-12 rounded-full bg-blue-100/80 flex items-center justify-center text-2xl shadow-xs shrink-0 select-none">
             👋
           </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="font-display font-extrabold text-2xl md:text-3xl text-slate-800 tracking-tight">
-                স্বাগতম,{" "}
-                {isEditing ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <input
-                      type="text"
-                      value={tempName}
-                      onChange={(e) => setTempName(e.target.value)}
-                      className="border-b-2 border-blue-500 focus:outline-none bg-transparent text-slate-800 font-bold px-1 py-0 w-32 md:w-44"
-                      maxLength={15}
-                      onKeyDown={(e) => e.key === "Enter" && handleSave()}
-                      autoFocus
-                    />
-                    <button
-                      onClick={handleSave}
-                      className="p-1 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition cursor-pointer"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                    </button>
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1">
-                    <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                      {studentName}
+          <div className="flex-1">
+            <div className="flex items-center justify-between w-full flex-wrap gap-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="font-display font-extrabold text-2xl md:text-3xl text-slate-800 tracking-tight">
+                  স্বাগতম,{" "}
+                  {isEditing && !user ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={tempName}
+                        onChange={(e) => setTempName(e.target.value)}
+                        className="border-b-2 border-blue-500 focus:outline-none bg-transparent text-slate-800 font-bold px-1 py-0 w-32 md:w-44"
+                        maxLength={15}
+                        onKeyDown={(e) => e.key === "Enter" && handleSave()}
+                        autoFocus
+                      />
+                      <button
+                        onClick={handleSave}
+                        className="p-1 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition cursor-pointer"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
                     </span>
-                    <button
-                      onClick={() => {
-                        setTempName(studentName);
-                        setIsEditing(true);
-                      }}
-                      className="p-1 text-slate-400 hover:text-blue-600 transition cursor-pointer"
-                      title="নাম পরিবর্তন করুন"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
+                  ) : (
+                    <span className="inline-flex items-center gap-1">
+                      <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                        {displayName}
+                      </span>
+                      {!user && (
+                        <button
+                          onClick={() => {
+                            setTempName(displayName);
+                            setIsEditing(true);
+                          }}
+                          className="p-1 text-slate-400 hover:text-blue-600 transition cursor-pointer"
+                          title="নাম পরিবর্তন করুন"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </span>
+                  )}
+                  !
+                </h1>
+                {user?.isPremium && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-amber-100 to-amber-200 text-amber-700 text-xs font-bold rounded-lg ml-2">
+                    <ShieldCheck className="w-3.5 h-3.5" /> Premium
                   </span>
                 )}
-                !
-              </h1>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                  {!user ? (
+                    <button onClick={onAuthClick} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition">
+                      <UserPlus className="w-4 h-4" /> Login / Signup
+                    </button>
+                  ) : (
+                    <button onClick={onLogout} className="text-xs font-bold text-slate-500 hover:text-slate-800 transition">
+                      Logout
+                    </button>
+                  )}
+              </div>
             </div>
-            <p className="text-slate-500 font-medium text-sm mt-1 max-w-xl leading-relaxed">
-              "অনুশীলনের জন্য প্রস্তুত? নির্দ্বিধায় কথা বলুন, এখানে কোনো দ্বিধা নেই। মাইক্রোফোনে ট্যাপ করে শুরু করুন!"
+            
+            <p className="text-slate-500 font-medium text-sm mt-1 max-w-xl leading-relaxed flex items-center gap-3">
+              "অনুশীলনের জন্য প্রস্তুত? নির্দ্বিধায় কথা বলুন!"
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${activeTimeLeft === 0 ? 'bg-red-100 text-red-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                <Clock className="w-3.5 h-3.5" /> 
+                {minutesLeft}m {secondsLeft}s left today
+              </span>
             </p>
           </div>
         </div>

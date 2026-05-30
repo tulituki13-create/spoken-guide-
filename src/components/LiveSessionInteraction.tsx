@@ -74,24 +74,17 @@ interface LiveSessionProps {
   selectedTutor: string;
   scenarioId: string | null;
   pdfStoreId?: string | null;
+  selectedVoice?: string;
   onTranscript: (text: string, isModel: boolean, isFinal: boolean) => void;
-  onSessionEnd?: (durationSec: number) => void;
+  onSessionEnd?: (durationSec: number, userAudio?: string) => void;
+  isTimeExhausted?: boolean;
 }
 
-const VOICES = [
-  { id: "Zephyr", label: "Zephyr (গভীর)", desc: "গভীর ও স্পষ্ট পুরুষ", enDesc: "Deep Narrator", emoji: "🎙️", accent: "Clear, Deep" },
-  { id: "Puck", label: "Puck (সাধারণ)", desc: "বন্ধুত্বপূর্ণ ও প্রাণবন্ত পুরুষ", enDesc: "Friendly Male", emoji: "👨", accent: "Lively, Bright" },
-  { id: "Kore", label: "Kore (শিশু)", desc: "কিউট ও হাসিখুশি শিশু", enDesc: "Child Voice Model", emoji: "👧", accent: "High-range, Cute" },
-  { id: "Charon", label: "Charon (শান্ত)", desc: "শান্ত ও মার্জিত পুরুষ", enDesc: "Calm Masculine", emoji: "🧔", accent: "Soft, Gentle" },
-  { id: "Fenrir", label: "Fenrir (গম্ভীর)", desc: "গম্ভীর ও বলিষ্ঠ পুরুষ", enDesc: "Deep/Bold Male", emoji: "🧔‍♂️", accent: "Rich, Low-range" },
-  { id: "Aoede-slow", label: "Aoede (ধীরগতি)", desc: "ধীর গতির কথা বলা নারী", enDesc: "Slow Phase Speaking", emoji: "🐢", accent: "Slow, Clear" }
-];
-
-export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTutor, scenarioId, pdfStoreId, onTranscript, onSessionEnd }) => {
+export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTutor, scenarioId, pdfStoreId, selectedVoice = "Zephyr", onTranscript, onSessionEnd, isTimeExhausted }) => {
   const [micState, setMicState] = useState<MicState>("ready");
   const [error, setError] = useState<string | null>(null);
-  const [selectedVoice, setSelectedVoice] = useState<string>("Zephyr");
   const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [hasNotifiedTimeLimit, setHasNotifiedTimeLimit] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -198,10 +191,19 @@ export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTut
       audioCtxRef.current.close().catch(() => {});
       audioCtxRef.current = null;
     }
+    let userAudioBase64 = "";
+    if (userAudioChunksRef.current.length > 0) {
+      try {
+        userAudioBase64 = createWavBase64(userAudioChunksRef.current);
+      } catch (err) {
+        console.error("Failed to compile user audio chunks to WAV base64:", err);
+      }
+    }
+
     setMicState("ready");
     if (wasActive && onSessionEnd) {
       const durationSec = Math.round((Date.now() - sessionStartTimeRef.current) / 1000);
-      onSessionEnd(Math.max(0, durationSec));
+      onSessionEnd(Math.max(0, durationSec), userAudioBase64);
     }
   };
 
@@ -215,10 +217,40 @@ export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTut
   };
 
   useEffect(() => {
-    return () => {
+    if (scenarioId) {
+      const timer = setTimeout(() => {
+        startSession();
+      }, 150);
+      return () => {
+        clearTimeout(timer);
+        stopSession();
+      };
+    } else {
       stopSession();
-    };
-  }, []);
+    }
+  }, [scenarioId, selectedVoice, selectedTutor]);
+
+  useEffect(() => {
+    if (isTimeExhausted && isActiveRef.current && wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !hasNotifiedTimeLimit) {
+      setHasNotifiedTimeLimit(true);
+      // Mute user so they can't talk anymore
+      setIsMuted(true);
+      isMutedRef.current = true;
+      if (streamRef.current) {
+        streamRef.current.getAudioTracks().forEach(t => t.enabled = false);
+      }
+      
+      // Tell Gemini they are out of time
+      wsRef.current.send(JSON.stringify({ text: "SYSTEM ERROR: The user has exhausted their free usage limit. You MUST immediately say to them: 'Your free daily 3-minute practice time has expired. Please log in or subscribe to Premium to continue our conversation. Goodbye for now!' or a nice equivalent. Say this immediately, and then firmly end your turn so the system can close." }));
+      
+      // Force session stop after giving Gemini some time to deliver the message
+      setTimeout(() => {
+        if (isActiveRef.current) {
+          stopSession();
+        }
+      }, 12000); // 12 seconds buffer to allow Gemini to speak
+    }
+  }, [isTimeExhausted, hasNotifiedTimeLimit]);
 
   const startSession = async () => {
     try {
@@ -236,6 +268,12 @@ export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTut
       if (pdfStoreId) {
         wsUrl += `&pdfId=${encodeURIComponent(pdfStoreId)}`;
       }
+      
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        wsUrl += `&auth=${encodeURIComponent(token)}`;
+      }
+      
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
@@ -279,13 +317,23 @@ export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTut
 
           drawWaveform();
 
+          // If the user immediately started a session but they are exhausted, trigger the limit message!
+          if (isTimeExhausted && !hasNotifiedTimeLimit) {
+            setHasNotifiedTimeLimit(true);
+            setIsMuted(true);
+            isMutedRef.current = true;
+            if (streamRef.current) streamRef.current.getAudioTracks().forEach(t => t.enabled = false);
+            ws.send(JSON.stringify({ text: "SYSTEM ERROR: The user has exhausted their free usage limit right now. You MUST immediately say to them: 'Your free daily 3-minute practice time has expired, or you have no more free tries left! Please log in or subscribe to Premium to continue our conversation. Goodbye for now!' or a nice equivalent. Say this immediately, and then firmly end your turn so the system can close." }));
+            setTimeout(() => { if (isActiveRef.current) stopSession(); }, 12000);
+          }
+
           // Setup speech recognition for user's voice (instead of polling backend API)
           const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
           if (SpeechRecognition) {
             const recognition = new SpeechRecognition();
             recognition.continuous = true;
             recognition.interimResults = false;
-            recognition.lang = "bn-IN"; // Covers both Bengali and English
+            recognition.lang = "en-US"; // Practice English speaking primarily
             
             recognition.onresult = (event: any) => {
               if (isMutedRef.current) return;
@@ -379,66 +427,22 @@ export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTut
   };
 
   return (
-    <div className="glass-panel rounded-2xl p-6 border-white flex flex-col gap-6 relative overflow-hidden min-h-[420px]">
+    <div className="glass-panel rounded-2xl p-6 border-white flex flex-col gap-4 relative overflow-hidden min-h-[180px]">
       <div className="absolute inset-x-0 bottom-0 h-1.5 bg-gradient-to-r from-blue-400 via-sky-400 to-indigo-400 opacity-60"></div>
 
       {/* Top Meta info */}
-      <div className="w-full flex justify-between items-center z-10">
+      <div className="w-full flex justify-between items-center z-10-compact">
         <span className="text-xxs font-mono font-bold text-slate-400 tracking-wider">
           ক্লাসরুম // রিয়েল-টাইম লাইভ
         </span>
-        <div className="flex items-center gap-1.5 text-xs text-blue-600 font-bold bg-blue-50 px-2.5 py-0.5 rounded-full select-none">
+        <div className="flex items-center gap-1.5 text-xs text-blue-600 font-bold bg-blue-50/75 px-3 py-1 rounded-full select-none shadow-sm">
           <Volume2 className="w-3.5 h-3.5 animate-pulse" />
-          রিয়েল-টাইম অডিও (Realtime Audio)
+          লাইভ ভয়েস (Voice Active)
         </div>
-      </div>
-
-      {/* 1. Custom Voice Selector Card Grid */}
-      <div className="w-full z-10">
-        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-          <span>টিউটরের কণ্ঠস্বর নির্বাচন করুন (Choose AI Voice Option)</span>
-        </h4>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 w-full">
-          {VOICES.map((v) => {
-            const isSelected = selectedVoice === v.id;
-            return (
-              <button
-                key={v.id}
-                onClick={() => setSelectedVoice(v.id)}
-                disabled={micState !== "ready"}
-                type="button"
-                className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all duration-300 relative select-none cursor-pointer ${
-                  isSelected
-                    ? "border-blue-500 bg-blue-50/50 scale-[0.98] shadow-inner"
-                    : "border-slate-100 hover:border-blue-200 hover:bg-white/40 bg-white/20"
-                } ${micState !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
-                title={micState !== "ready" ? "ভয়েস পরিবর্তন করতে সেশন সমাপ্ত করুন (Stop session to change voice)" : `${v.label} - ${v.enDesc}`}
-              >
-                <div className="flex items-center justify-between gap-1 mb-1">
-                  <span className="text-xl">{v.emoji}</span>
-                  {isSelected && (
-                    <span className="p-0.5 bg-blue-500 text-white rounded-full">
-                      <Check className="w-2.5 h-2.5" />
-                    </span>
-                  )}
-                </div>
-                <div>
-                  <p className="font-bold text-xs text-slate-800 leading-tight">{v.id}</p>
-                  <p className="text-[9px] text-slate-500 font-medium leading-none mt-0.5">{v.desc}</p>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-        {micState !== "ready" && (
-          <p className="text-[10px] text-amber-600 font-medium mt-1.5 text-center bg-amber-50 rounded-md py-1 border border-amber-100/50 animate-pulse">
-            মডেল সেশন সক্রিয় থাকাকালীন ভয়েস পরিবর্তন অসম্ভব। প্রথমে লাল বাটনে চাপ দিয়ে সেশন বন্ধ করুন।
-          </p>
-        )}
       </div>
 
       {/* 2. Audio visualizer and main interaction mic button */}
-      <div className="relative flex-1 flex flex-col items-center justify-center min-h-[160px] group z-10 w-full">
+      <div className="relative flex-1 flex flex-col items-center justify-center min-h-[130px] group z-10 w-full">
         <canvas 
           ref={canvasRef} 
           width={280} 
@@ -493,13 +497,18 @@ export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTut
 
       <div className="text-center z-10 w-full min-h-[40px] flex flex-col justify-center pb-2">
         {micState === "ready" && (
-          <p className="text-sm font-semibold text-slate-600">
-            <span className="text-blue-600">{selectedTutor}</span>-এর সাথে লাইভ আলোচনা করতে ট্যাপ করুন
+          <p className="text-sm font-semibold text-slate-500">
+            টপিক নির্বাচন করুন - লাইভ সেশন স্বয়ংক্রিয়ভাবে শুরু হবে! (Choose a topic to start live talking immediately)
+          </p>
+        )}
+        {micState === "thinking" && (
+          <p className="text-sm font-bold text-blue-600 animate-pulse">
+            লাইভ সেশন কানেক্ট হচ্ছে... (Connecting to Gemini Live...)
           </p>
         )}
         {micState === "listening" && (
-          <p className="text-sm font-semibold text-red-600">
-            লাইভ স্ট্রিম চলছে। স্বাভাবিকভাবে কথা বলুন।
+          <p className="text-sm font-semibold text-red-600 animate-pulse">
+            লাইভ স্ট্রিম চলছে। স্বাভাবিকভাবে ইংরেজি বলুন! (Live Voice Active. Speak in English!)
           </p>
         )}
       </div>

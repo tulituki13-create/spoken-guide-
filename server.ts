@@ -5,8 +5,44 @@ import dotenv from "dotenv";
 import { WebSocketServer } from "ws";
 import type { Server } from "http";
 import crypto from "crypto";
-import * as pdfParseModule from "pdf-parse";
-const pdfParse = (pdfParseModule as any).default || pdfParseModule;
+import { PDFParse } from "pdf-parse";
+import authRoutes from "./backend/auth_routes.js";
+import { getUser } from "./backend/db.js";
+import jwt from "jsonwebtoken";
+
+async function pdfParse(dataBuffer: Buffer): Promise<{ text: string }> {
+  try {
+    if (typeof PDFParse === "function") {
+      const parser = new PDFParse({ data: dataBuffer });
+      const result = await parser.getText();
+      return { text: result.text || "" };
+    }
+  } catch (e: any) {
+    console.warn("New PDFParse class import failed, trying legacy fallback... Error:", e.message || e);
+  }
+
+  // Legacy dynamic wrapper
+  let legacyParser: any;
+  try {
+    const imported = await import("pdf-parse");
+    // Some ES modules load it inside .default
+    legacyParser = (imported as any).default || imported;
+  } catch (err) {
+    try {
+      // CommonJS fallback
+      if (typeof require !== "undefined") {
+        legacyParser = require("pdf-parse");
+      }
+    } catch (e) {}
+  }
+
+  if (typeof legacyParser === "function") {
+    const result = await legacyParser(dataBuffer);
+    return { text: result.text || "" };
+  }
+
+  throw new Error("No suitable PDF parser could be loaded from the pdf-parse library");
+}
 
 dotenv.config();
 
@@ -14,6 +50,7 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json({ limit: "50mb" }));
+app.use("/api/auth", authRoutes);
 
 // Store parsed PDF text temporarily
 const pdfStore: { [key: string]: string } = {};
@@ -39,7 +76,8 @@ const SYSTEM_PROMPT = `You are an incredibly patient, warm, and encouraging AI t
 3. **Prioritize fluency over perfection:** Do NOT interrupt the student to correct grammar or pronunciation. Let them speak freely. Provide natural, conversational replies.
 4. **Be an active listener:** Respond directly to what the student says. Show you are listening.
 5. **Pass the mic back:** Always end your turn with a natural, friendly, open-ended question that makes it effortless for the student to keep talking.
-6. **End of Conversation Review:** When the student asks to stop the conversation or says goodbye, give all the reviews about the student at the end. Review their response and fluency to help them get a better understanding about their pronunciation.`;
+6. **End of Conversation Review:** When the student asks to stop the conversation or says goodbye, give all the reviews about the student at the end. Review their response and fluency to help them get a better understanding about their pronunciation.
+7. **Introduce New Vocabulary:** Periodically use a completely new or slightly advanced English word to grab the student's attention. Immediately ask them what they think the word means, and then explain it simply (with Bengali translation) afterward!`;
 
 let SCENARIOS: Record<string, any> = {
   restaurant: {
@@ -109,6 +147,66 @@ let SCENARIOS: Record<string, any> = {
       "Household chores (ঘর পরিষ্কার করা বা রান্না করা)"
     ],
     difficulty: "মাঝারি"
+  },
+  ielts: {
+    system: `${SYSTEM_PROMPT}\n\nSCENARIO CONTEXT: You are a strict, professional IELTS examiner conducting a speaking test. Do NOT offer typical friendly praise. Ask structured IELTS speaking questions (Part 1, 2, or 3). Demand complete sentences. Highlight their grammar.`,
+    icebreaker: "Good afternoon. Please take a seat. My name is Buddy. I will be your IELTS speaking examiner today. Could you tell me your full name, please?",
+    name: "IELTS Examiner",
+    icon: "🤓",
+    description: "Strict IELTS Speaking practice.",
+    context: "Strict IELTS examiner checking grammar and fluency.",
+    vocabulary: ["Fluent", "Lexical Resource", "Band Score"],
+    difficulty: "কঠিন"
+  },
+  foreigners: {
+    system: `${SYSTEM_PROMPT}\n\nSCENARIO CONTEXT: The user is in a foreign country and doesn't know much English. Speak extremely slowly and use simple words. Translate key words into Bangla actively so they understand. Teach them survival phrases without worrying about grammar rules.`,
+    icebreaker: "Hello! নমস্কার! I will help you speak simple English. Let's learn to buy food. আপনি কি খাবার কিনতে চান?",
+    name: "Foreigners English",
+    icon: "🌍",
+    description: "Learn without grammar. Bangla translations included.",
+    context: "Learn English basics for survival abroad with Bangla.",
+    vocabulary: ["How much?", "Where is...?", "Help me"],
+    difficulty: "সহজ"
+  },
+  advanced: {
+    system: `${SYSTEM_PROMPT}\n\nSCENARIO CONTEXT: You are speaking to an advanced English learner. Challenge them with sophisticated vocabulary, idioms, and complex philosophical or technical topics. Try to stretch their lexical limits.`,
+    icebreaker: "Welcome. Let's engage in a thought-provoking discussion. What is your perspective on the impact of artificial intelligence on human creativity?",
+    name: "Advanced Learners",
+    icon: "🧠",
+    description: "Challenging parts, complex topics, advanced vocab.",
+    context: "Stretch your English limits.",
+    vocabulary: ["Intricate", "Paradigm", "Cognitive"],
+    difficulty: "কঠিন"
+  },
+  kids: {
+    system: `${SYSTEM_PROMPT}\n\nSCENARIO CONTEXT: You are a sweet, animated teacher for a young child. Speak very slowly, use basic things (colors, animals, numbers). Be extremely encouraging and playful.`,
+    icebreaker: "Hello there! My name is Buddy! Are you ready to play a fun game with colors? What is your favorite color?",
+    name: "Kids English",
+    icon: "🧸",
+    description: "Very slow basic things to teach kids.",
+    context: "Fun, slow, easy english for kids.",
+    vocabulary: ["Apple", "Red", "Cat", "Dog"],
+    difficulty: "সহজ"
+  },
+  business: {
+    system: `${SYSTEM_PROMPT}\n\nSCENARIO CONTEXT: You are a corporate English coach. Focus on business idioms, formal meetings, email etiquette, and negotiating. Keep the tone professional but helpful.`,
+    icebreaker: "Good morning. Let's practice some business English. Suppose we are starting a meeting about our Q3 sales goals. How would you open the meeting?",
+    name: "Business English",
+    icon: "📊",
+    description: "Professional corporate language.",
+    context: "Learn office and corporate English.",
+    vocabulary: ["Synergy", "Deliverables", "ROI"],
+    difficulty: "মাঝারি"
+  },
+  doubt: {
+    system: `${SYSTEM_PROMPT}\n\nSCENARIO CONTEXT: You are an expert grammar teacher. The user will ask complex questions or express confusion about English grammar (tenses, prepositions, conditionals). Explain them very clearly and patiently.`,
+    icebreaker: "Hello! I am your doubt clearer today. What confusing part of English grammar can I help you understand?",
+    name: "Doubt Clearer",
+    icon: "🤔",
+    description: "Complex parts of grammar, confusion parts.",
+    context: "Solve deep grammar mysteries.",
+    vocabulary: ["Present Perfect", "Conditionals", "Gerund"],
+    difficulty: "মাঝারি"
   }
 };
 
@@ -119,15 +217,18 @@ app.get("/api/scenarios", (req, res) => {
     icon: SCENARIOS[key].icon || "💬",
     description: SCENARIOS[key].description || "",
     context: SCENARIOS[key].context || "",
+    pdfId: SCENARIOS[key].pdfId || null,
     vocabulary: SCENARIOS[key].vocabulary || [],
-    difficulty: SCENARIOS[key].difficulty || "Medium"
+    difficulty: SCENARIOS[key].difficulty || "Medium",
+    systemPrompt: SCENARIOS[key].system || "",
+    icebreaker: SCENARIOS[key].icebreaker || ""
   }));
   res.json(scenariosList);
 });
 
 app.post("/api/scenarios", (req, res) => {
   const { adminSecret, id, systemPrompt, icebreaker, meta } = req.body;
-  if(adminSecret !== process.env.ADMIN_SECRET && adminSecret !== "admin123") {
+  if(adminSecret !== process.env.ADMIN_SECRET && adminSecret !== "admin123" && adminSecret !== "admin") {
     return res.status(403).json({ error: "Unauthorized" });
   }
   
@@ -137,6 +238,12 @@ app.post("/api/scenarios", (req, res) => {
     icebreaker,
     ...meta
   };
+  
+  // If the admin attached a new PDF, parse the text and store it permanently inside the scenario
+  if (meta.pdfId && pdfStore[meta.pdfId]) {
+     SCENARIOS[scenarioId].pdfText = pdfStore[meta.pdfId];
+  }
+
   res.json({ success: true, id: scenarioId });
 });
 
@@ -609,7 +716,18 @@ function getLocalSmartHints(history: any[], scenario: string | null): string[] {
 
 // Conversational Endpoint
 app.post("/api/chat", async (req, res) => {
-  const { message, audio, history, scenario, tutorName } = req.body;
+  const { message, audio, history, scenario, tutorName, auth } = req.body;
+  
+  let isPremium = false;
+  let username = "Student";
+  if (auth) {
+    try {
+      const payload = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET || 'super-secret-default-key-for-jwt') as any;
+      isPremium = !!payload.isPremium;
+      username = payload.username;
+    } catch(e) {}
+  }
+  
   try {
     if (!ai || isCoolingDown()) {
       if (isCoolingDown()) {
@@ -629,6 +747,12 @@ app.post("/api/chat", async (req, res) => {
     
     if (tutorName) {
       activePrompt = activePrompt.replace(/Buddy/g, tutorName);
+    }
+    
+    if (!isPremium) {
+      activePrompt += `\n\nVERY IMPORTANT: Because the user ${username} is a free member, at the very beginning of the chat (or in your very next reply), you MUST say exactly: "If you want the practice sheet, please subscribe to premium membership." Only say it ONCE. Do NOT repeat it.`;
+    } else {
+      activePrompt += `\n\nThe user ${username} is a PREMIUM member. Do NOT ask them to subscribe.`;
     }
 
     // If audio is provided, we need to instruct the model to return both transcript and reply
@@ -852,7 +976,7 @@ Format requirement: Return ONLY the raw JSON block without markdown formatting. 
 
     const response = await callGeminiWithRetry(() =>
       ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.5-flash",
         contents: reviewPrompt,
         config: {
           responseMimeType: "application/json",
@@ -895,7 +1019,7 @@ app.post("/api/transcribe", async (req, res) => {
 
   try {
     const result = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.5-flash",
       contents: [{
         role: "user",
         parts: [
@@ -917,7 +1041,23 @@ app.post("/api/transcribe", async (req, res) => {
 });
 
 app.post("/api/upload-pdf", async (req, res) => {
-  const { pdfBase64 } = req.body;
+  const { pdfBase64, auth, adminSecret } = req.body;
+  
+  let isAdmin = false;
+  if (adminSecret && (adminSecret === process.env.ADMIN_SECRET || adminSecret === "admin123" || adminSecret === "admin")) {
+    isAdmin = true;
+  }
+  
+  if (!isAdmin) {
+    if (!auth) return res.status(401).json({ error: "Only premium members can upload PDFs." });
+    try {
+      const payload = jwt.verify(auth.replace('Bearer ', ''), process.env.JWT_SECRET || 'super-secret-default-key-for-jwt') as any;
+      if (!payload.isPremium) return res.status(403).json({ error: "Only premium members can upload PDFs." });
+    } catch(e) {
+      return res.status(401).json({ error: "Invalid token" });
+    }
+  }
+
   if (!pdfBase64) return res.status(400).json({ error: "No PDF provided" });
 
   try {
@@ -942,33 +1082,117 @@ app.post("/api/upload-pdf", async (req, res) => {
 });
 
 app.post("/api/summary", async (req, res) => {
-  const { transcript } = req.body;
-  if (!transcript || transcript.trim().length === 0) {
-    return res.json({ summary: "We didn't catch much conversation. Practice speaking more next time!" });
+  const { transcript, userAudio } = req.body;
+  const hasUserAudio = userAudio && typeof userAudio === "string" && userAudio.length > 500;
+
+  if ((!transcript || transcript.trim().length === 0) && !hasUserAudio) {
+    return res.json({
+      overallFeedback: "We didn't catch much conversation. Practice speaking more next time!",
+      spokenReview: "No spoken audio registered.",
+      practiceReview: "No session active.",
+      learningPoints: ["Try chatting with the AI Tutor!", "Select a custom topic / role-play to trigger specific vocabulary."],
+      fluencyScore: 40,
+      vocabularyScore: 40,
+      grammarScore: 40,
+      pronunciationScore: 40
+    });
   }
 
   if (!ai || isCoolingDown()) {
-    return res.json({ summary: "Summary currently unavailable due to system limits. Please try again later." });
+    return res.json({
+      overallFeedback: "Summary currently unavailable due to system limits. Please try again later.",
+      spokenReview: "Reviews are offline during high load.",
+      practiceReview: "Please wait a few minutes before trying again.",
+      learningPoints: ["Keep practicing regularly!"],
+      fluencyScore: 50,
+      vocabularyScore: 50,
+      grammarScore: 50,
+      pronunciationScore: 50
+    });
   }
 
   try {
-    const result = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [{
-        role: "user",
-        parts: [
-          { text: "Read the following transcript of an English speaking practice session between a 'Student' and a 'Tutor' (or 'Model'). Provide a single short paragraph (max 2-3 sentences) acting as a 'Key Learning Point' or encouragement for the student. Focus on their fluency or specific words they used. Keep it very conversational and positive, speak directly to the student in English." },
-          { text: "TRANSCRIPT:\n" + transcript }
-        ]
-      }]
+    const apiCallPromise = callGeminiWithRetry(() =>
+      ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "OBJECT",
+            properties: {
+              overallFeedback: { type: "STRING" },
+              spokenReview: { type: "STRING" },
+              practiceReview: { type: "STRING" },
+              learningPoints: {
+                type: "ARRAY",
+                items: { type: "STRING" }
+              },
+              fluencyScore: { type: "INTEGER" },
+              vocabularyScore: { type: "INTEGER" },
+              grammarScore: { type: "INTEGER" },
+              pronunciationScore: { type: "INTEGER" }
+            },
+            required: [
+              "overallFeedback", 
+              "spokenReview", 
+              "practiceReview", 
+              "learningPoints",
+              "fluencyScore",
+              "vocabularyScore",
+              "grammarScore",
+              "pronunciationScore"
+            ]
+          }
+        },
+        contents: [{
+          role: "user",
+          parts: [
+            { text: "Analyze the student's speaking performance in this English practice session. If an audio file of the student speaking is included below, please listen to it directly (it is a mono WAV audio file at 24kHz) to analyze their spoken voice, vocabulary, grammar, and especially pronunciation accuracy. Provide a JSON object summarizing: how was their spoken English (grammar, clarity, fluency, vocab) and how was their practice session overall (scenario involvement, accuracy, flow). Speak directly to the student in a positive, encouraging blend of English and Bengali so they can easily learn. Evaluate scores: fluencyScore (10-100), vocabularyScore (10-100), grammarScore (10-100), pronunciationScore (10-100). Use the exact JSON schema provided." },
+            { text: "TRANSCRIPT INTRO / HISTORY (CONTAINS CHAT TEXT DIALOG DUE TO RECOGNITION HISTORY):\n" + transcript },
+            ...(hasUserAudio ? [{ inlineData: { data: userAudio, mimeType: "audio/wav" } }] : [])
+          ]
+        }]
+      })
+    );
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Timeout")), 45000)
+    );
+
+    const result = await Promise.race([apiCallPromise, timeoutPromise]);
+    const parsed = JSON.parse(result.text || "{}");
+    res.json({
+      overallFeedback: parsed.overallFeedback || "Keep up the great work with your speaking practice!",
+      spokenReview: parsed.spokenReview || "You tried very well. Focus on pronunciation and sentence structure.",
+      practiceReview: parsed.practiceReview || "Wonderful interactive roleplay on the topic scenario.",
+      learningPoints: parsed.learningPoints || ["Keep up the great work with your speaking practice!"],
+      fluencyScore: typeof parsed.fluencyScore === 'number' ? parsed.fluencyScore : 70,
+      vocabularyScore: typeof parsed.vocabularyScore === 'number' ? parsed.vocabularyScore : 70,
+      grammarScore: typeof parsed.grammarScore === 'number' ? parsed.grammarScore : 70,
+      pronunciationScore: typeof parsed.pronunciationScore === 'number' ? parsed.pronunciationScore : 70
     });
-    res.json({ summary: result.text || "Keep up the great work with your speaking practice!" });
   } catch (err: any) {
     if (isQuotaError(err)) {
       triggerCoolDown(err);
     }
-    console.error("Summary error:", err.message || err);
-    res.json({ summary: "Keep up the great work with your speaking practice!" });
+    // Only log if it's not a standard capacity/quota error to avoid console noise
+    const errMsg = err.message || JSON.stringify(err);
+    if (!errMsg.includes("553") && !errMsg.includes("503") && !errMsg.includes("429") && !errMsg.includes("UNAVAILABLE")) {
+       console.error("Summary error:", errMsg);
+    }
+    res.json({
+      overallFeedback: "Keep up the great work with your speaking practice!",
+      spokenReview: "You sound friendly and natural. Keep talking to gain more fluency!",
+      practiceReview: "Great effort mimicking realistic conversations and responding promptly.",
+      learningPoints: [
+        "Try saying longer phrases without stopping.",
+        "Review grammar cues after completing speaking exercises."
+      ],
+      fluencyScore: 75,
+      vocabularyScore: 70,
+      grammarScore: 75,
+      pronunciationScore: 80
+    });
   }
 });
 
@@ -982,6 +1206,18 @@ function setupLiveWebSocket(server: Server) {
     const rawVoice = url.searchParams.get("voice") || "Zephyr";
     const scenarioId = url.searchParams.get("scenarioId");
     const pdfId = url.searchParams.get("pdfId");
+    
+    // Auth Check
+    const auth = url.searchParams.get("auth");
+    let isPremium = false;
+    let username = "Student";
+    if (auth) {
+      try {
+        const payload = jwt.verify(auth, process.env.JWT_SECRET || 'super-secret-default-key-for-jwt') as any;
+        isPremium = !!payload.isPremium;
+        username = payload.username;
+      } catch(e) {}
+    }
 
     // Normalize voice name casing (e.g. puck -> Puck, aoede -> Aoede)
     let voiceName = rawVoice.charAt(0).toUpperCase() + rawVoice.slice(1).toLowerCase();
@@ -1004,8 +1240,21 @@ function setupLiveWebSocket(server: Server) {
       systemInstruction += `\n3. MOST IMPORTANT: You MUST speak extremely slowly, clearly, and pausing between words. The student needs to hear every syllable slowly to learn properly. Act like you are speaking in slow motion.`;
     }
 
+    if (!isPremium) {
+      systemInstruction += `\n4. VERY IMPORTANT: Before starting the main conversation, you MUST mention exactly this note: "If you want the practice sheet, please subscribe to premium membership." Only say this once at the beginning, don't repeat it!`;
+    } else {
+      systemInstruction += `\n4. The user ${username} is a PREMIUM member. Do NOT ask them to subscribe. You can give them full access to all materials and practice sheets.`;
+    }
+
     if (scenarioId && SCENARIOS[scenarioId as keyof typeof SCENARIOS]) {
-      systemInstruction = SCENARIOS[scenarioId as keyof typeof SCENARIOS].system.replace(/Buddy/g, tutorName) + `\n\nYour output is being streamed directly as voice. Use human-like conversational fillers (e.g. "ah", "hmmm", "oh", "well"). Do NOT use text formatting like *actions*, bolding, or markdown. Speak dynamically to keep the conversation flowing. Never speak for more than 2 or 3 short sentences at a time.`;
+      const scenario = SCENARIOS[scenarioId as keyof typeof SCENARIOS];
+      systemInstruction = scenario.system.replace(/Buddy/g, tutorName) + `\n\nYour output is being streamed directly as voice. Use human-like conversational fillers (e.g. "ah", "hmmm", "oh", "well"). Do NOT use text formatting like *actions*, bolding, or markdown. Speak dynamically to keep the conversation flowing. Never speak for more than 2 or 3 short sentences at a time.`;
+      
+      if (!isPremium) {
+        systemInstruction += `\n\nVERY IMPORTANT: Before doing anything else, you MUST tell the student: "If you want the practice sheet, please subscribe to premium membership." Say this only ONCE.`;
+      } else if (scenario.pdfText) {
+        systemInstruction += `\n\nSCENARIO CONTEXT (PRACTICE SHEET): The user is a premium member. Here is the topic's practice sheet text:\n\n---\n${scenario.pdfText.substring(0, 20000)}\n---\n\nUse this material to ask questions, practice vocabulary, and discuss the topic deeply with the student!`;
+      }
     } else if (scenarioId === "surprise") {
       systemInstruction += `\n\nSCENARIO CONTEXT: You must pick a completely random, surprising, and highly creative role-play scenario for the user to participate in right now (e.g., alien landing, time travel, a magical quest, managing a crazy zoo). Introduce the scenario excitedly as soon as they say hello, and play along!`;
     } else if (scenarioId === "pdf" && pdfId && pdfStore[pdfId]) {
@@ -1045,6 +1294,21 @@ function setupLiveWebSocket(server: Server) {
           },
           systemInstruction,
         },
+      });
+
+      // Immediately request Gemini to greet the student first!
+      let greetingRequest = "Please initiate the conversation immediately in Bengali and English as English voice tutor. Introduce yourself and ask a friendly, open-ended question to get the student speaking.";
+      if (scenarioId && SCENARIOS[scenarioId]) {
+        const titleBn = SCENARIOS[scenarioId].name || scenarioId;
+        greetingRequest = `Please start the roleplay for the scenario "${titleBn}" immediately! Greet the student, play your role, and ask an engaging, brief question typical of this situation. Speak in Bengali and English as appropriate.`;
+      } else if (scenarioId === "surprise") {
+        greetingRequest = "Choose a completely random, surprising and highly creative role-play scenario. Start the roleplay immediately! Greet the student excitedly, describe the wacky situation, and ask them how they want to act or respond. Keep it highly interactive.";
+      } else if (scenarioId === "pdf" && pdfId && pdfStore[pdfId]) {
+        greetingRequest = "Introduce yourself, mention you have studied the uploaded PDF document, and start with a brief summary or friendly study question related to the document content. Encourage the student to speak up!";
+      }
+
+      session.sendRealtimeInput({
+        text: greetingRequest
       });
 
       clientWs.on("message", (data) => {

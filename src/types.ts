@@ -10,6 +10,24 @@ export interface ChatMessage {
 
 export type MicState = "ready" | "listening" | "speaking" | "thinking";
 
+export interface VoiceOption {
+  id: string;
+  label: string;
+  desc: string;
+  enDesc: string;
+  emoji: string;
+  accent: string;
+}
+
+export const VOICES: VoiceOption[] = [
+  { id: "Zephyr", label: "Zephyr (গভীর)", desc: "গভীর ও স্পষ্ট পুরুষ", enDesc: "Deep Narrator", emoji: "🎙️", accent: "Clear, Deep" },
+  { id: "Puck", label: "Puck (সাধারণ)", desc: "বন্ধুত্বপূর্ণ ও প্রাণবন্ত পুরুষ", enDesc: "Friendly Male", emoji: "👨", accent: "Lively, Bright" },
+  { id: "Kore", label: "Kore (শিশু)", desc: "কিউট ও হাসিখুশি শিশু", enDesc: "Child Voice Model", emoji: "👧", accent: "High-range, Cute" },
+  { id: "Charon", label: "Charon (শান্ত)", desc: "শান্ত ও মার্জিত পুরুষ", enDesc: "Calm Masculine", emoji: "🧔", accent: "Soft, Gentle" },
+  { id: "Fenrir", label: "Fenrir (গম্ভীর)", desc: "গম্ভীর ও বলিষ্ঠ পুরুষ", enDesc: "Deep/Bold Male", emoji: "🧔‍♂️", accent: "Rich, Low-range" },
+  { id: "Aoede-slow", label: "Aoede (ধীরগতি)", desc: "ধীর গতির কথা বলা নারী", enDesc: "Slow Phase Speaking", emoji: "🐢", accent: "Slow, Clear" }
+];
+
 export interface Icebreaker {
   id: string;
   icon: string;
@@ -39,6 +57,7 @@ export interface Scenario {
   context: string;
   vocabulary: string[];
   difficulty: string;
+  pdfId?: string;
 }
 
 export interface TeacherMistake {

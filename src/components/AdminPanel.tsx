@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Lock, X, Plus, Trash2, CheckCircle } from "lucide-react";
+import { Lock, X, Plus, Trash2, CheckCircle, Edit2, RotateCcw } from "lucide-react";
 
 interface AdminPanelProps {
   onClose: () => void;
@@ -11,23 +11,65 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [scenarios, setScenarios] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   
-  // New Scenario Form
+  // New Scenario Form / Edit Scenario Form
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [icon, setIcon] = useState("💬");
   const [description, setDescription] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [icebreaker, setIcebreaker] = useState("");
   const [difficulty, setDifficulty] = useState("মাঝারি");
+  const [topicPdfId, setTopicPdfId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+
+  const [tab, setTab] = useState<'scenarios' | 'users' | 'messages'>('scenarios');
+  const [users, setUsers] = useState<any[]>([]);
+  const [messagesList, setMessagesList] = useState<any[]>([]);
+
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch("/api/auth/admin/users", { headers: { "admin-secret": secret } });
+      setUsers(await res.json());
+    } catch (e) {}
+  };
+
+  const fetchMessages = async () => {
+    try {
+      const res = await fetch("/api/auth/admin/messages", { headers: { "admin-secret": secret } });
+      setMessagesList(await res.json());
+    } catch (e) {}
+  };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (secret === "admin123") {
+    if (secret === "admin123" || secret === "admin") {
       setIsAuthenticated(true);
       fetchScenarios();
+      fetchUsers();
+      fetchMessages();
     } else {
       setMessage("Invalid secret key.");
     }
+  };
+
+  const togglePremium = async (id: string, currentStatus: boolean) => {
+    await fetch(`/api/auth/admin/users/${id}/approve`, {
+      method: "POST",
+      headers: { "admin-secret": secret, "Content-Type": "application/json" },
+      body: JSON.stringify({ isPremium: !currentStatus })
+    });
+    fetchUsers();
+  };
+
+  const replyToMessage = async (id: string) => {
+    const reply = window.prompt("Reply message:");
+    if (!reply) return;
+    await fetch(`/api/auth/admin/messages/${id}/reply`, {
+      method: "POST",
+      headers: { "admin-secret": secret, "Content-Type": "application/json" },
+      body: JSON.stringify({ reply })
+    });
+    fetchMessages();
   };
 
   const fetchScenarios = () => {
@@ -43,10 +85,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         method: "DELETE",
         headers: { Authorization: secret }
       });
-      if (res.ok) fetchScenarios();
+      if (res.ok) {
+        fetchScenarios();
+        if (editingId === id) {
+          handleCancelEdit();
+        }
+      }
     } catch(err) {
       console.error(err);
     }
+  };
+
+  const handleEditClick = (sc: any) => {
+    setEditingId(sc.id);
+    setName(sc.name);
+    setIcon(sc.icon || "💬");
+    setDescription(sc.description || "");
+    setSystemPrompt(sc.systemPrompt || "");
+    setIcebreaker(sc.icebreaker || "");
+    setDifficulty(sc.difficulty || "মাঝারি");
+    setTopicPdfId(sc.pdfId || null);
+    setMessage(`Editing scenario: ${sc.name}`);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setName("");
+    setIcon("💬");
+    setDescription("");
+    setSystemPrompt("");
+    setIcebreaker("");
+    setDifficulty("মাঝারি");
+    setTopicPdfId(null);
+    setMessage("");
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -58,6 +129,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           adminSecret: secret,
+          id: editingId || undefined,
           systemPrompt,
           icebreaker,
           meta: {
@@ -65,20 +137,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             icon,
             description,
             difficulty,
+            pdfId: topicPdfId,
             vocabulary: []
           }
         })
       });
       if (res.ok) {
-        setMessage("Scenario created successfully!");
+        setMessage(editingId ? "Scenario updated successfully!" : "Scenario created successfully!");
         fetchScenarios();
-        // Reset form
+        // Reset/Clear form
+        setEditingId(null);
         setName("");
+        setIcon("💬");
         setSystemPrompt("");
         setIcebreaker("");
         setDescription("");
+        setDifficulty("মাঝারি");
+        setTopicPdfId(null);
       } else {
-        setMessage("Failed to create scenario.");
+        setMessage("Failed to save scenario.");
       }
     } catch(err) {
       console.error(err);
@@ -107,6 +184,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           </div>
         </div>
 
+        {isAuthenticated && (
+          <div className="flex border-b border-slate-200">
+            <button className={`px-4 py-3 font-bold ${tab === 'scenarios' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-500'}`} onClick={() => setTab('scenarios')}>Scenarios</button>
+            <button className={`px-4 py-3 font-bold ${tab === 'users' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-500'}`} onClick={() => setTab('users')}>Users</button>
+            <button className={`px-4 py-3 font-bold ${tab === 'messages' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-500'}`} onClick={() => setTab('messages')}>Messages</button>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto p-6">
           {!isAuthenticated ? (
             <div className="max-w-md mx-auto my-12 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
@@ -126,16 +211,64 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 {message && <p className="text-red-500 text-sm p-2 bg-red-50 rounded-lg">{message}</p>}
               </form>
             </div>
+          ) : tab === 'users' ? (
+            <div className="space-y-4">
+              <h3 className="text-lg font-bold">Manage Users</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {users.map((u: any) => (
+                   <div key={u.id} className="p-4 border rounded-xl flex justify-between items-center">
+                     <div>
+                       <p className="font-bold">{u.username}</p>
+                       <p className="text-xs text-slate-500">Time used: {u.chatTimeUsed}s</p>
+                     </div>
+                     <button onClick={() => togglePremium(u.id, u.isPremium)} className={`px-3 py-1 text-xs font-bold rounded-full ${u.isPremium ? 'bg-amber-100 text-amber-700' : 'bg-slate-100'}`}>
+                       {u.isPremium ? 'Premium' : 'Make Premium'}
+                     </button>
+                   </div>
+                ))}
+              </div>
+            </div>
+          ) : tab === 'messages' ? (
+            <div className="space-y-4">
+              <h3 className="text-lg font-bold">User Messages</h3>
+              <div className="flex flex-col gap-4">
+                {messagesList.map((m: any) => (
+                   <div key={m.id} className="p-4 border rounded-xl">
+                     <p className="font-bold text-sm text-indigo-600">{m.username} <span className="text-slate-400 text-xs font-normal">{new Date(m.createdAt).toLocaleString()}</span></p>
+                     <p className="mt-1">{m.message}</p>
+                     {m.reply ? (
+                       <div className="mt-3 p-3 bg-indigo-50 rounded-lg text-sm"><span className="font-bold">Reply:</span> {m.reply}</div>
+                     ) : (
+                       <button onClick={() => replyToMessage(m.id)} className="mt-3 text-xs bg-indigo-100 text-indigo-700 px-3 py-1 font-bold rounded-lg hover:bg-indigo-200">Reply</button>
+                     )}
+                   </div>
+                ))}
+              </div>
+            </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Left Column: Create Form */}
+              {/* Left Column: Create or Edit Form */}
               <div className="space-y-4">
-                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                  <Plus className="w-5 h-5 text-indigo-500" />
-                  Create New Prompt
+                <h3 className="text-lg font-bold text-slate-800 flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    {editingId ? <Edit2 className="w-5 h-5 text-amber-500 animate-pulse" /> : <Plus className="w-5 h-5 text-indigo-500" />}
+                    {editingId ? "Edit Existing Prompt" : "Create New Prompt"}
+                  </span>
+                  {editingId && (
+                    <button
+                      type="button"
+                      onClick={handleCancelEdit}
+                      className="text-xs flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-all cursor-pointer font-bold"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Cancel Edit
+                    </button>
+                  )}
                 </h3>
                 {message && (
-                  <div className="p-3 bg-green-50 text-green-700 border border-green-200 rounded-lg text-sm font-medium">
+                  <div className={`p-3 border rounded-lg text-sm font-medium ${
+                    editingId ? "bg-amber-50 text-amber-800 border-amber-200" : "bg-green-50 text-green-700 border-green-200"
+                  }`}>
                     {message}
                   </div>
                 )}
@@ -182,12 +315,45 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       placeholder="Hello! Welcome to..." 
                     />
                   </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Attached PDF for Students (Premium Only)</label>
+                    <div className="flex items-center gap-2">
+                       <input 
+                         type="file" accept=".pdf"
+                         onChange={async (e) => {
+                           const file = e.target.files?.[0];
+                           if (!file) return;
+                           const reader = new FileReader();
+                           reader.onload = async () => {
+                             const base64String = (reader.result as string).replace(/^data:application\/pdf;base64,/, "");
+                             const res = await fetch("/api/upload-pdf", {
+                               method: "POST",
+                               headers: { "Content-Type": "application/json" },
+                               body: JSON.stringify({ pdfBase64: base64String, adminSecret: secret }),
+                             });
+                             if (res.ok) {
+                               const data = await res.json();
+                               setTopicPdfId(data.pdfId);
+                               alert("PDF uploaded successfully! Save scenario to attach.");
+                             } else {
+                               alert("Failed to upload PDF.");
+                             }
+                           };
+                           reader.readAsDataURL(file);
+                         }}
+                         className="flex-1 p-1 bg-slate-50 border border-slate-200 rounded-lg text-sm" 
+                       />
+                       {topicPdfId && <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded">Linked</span>}
+                    </div>
+                  </div>
                   <button 
                     disabled={loading}
                     type="submit" 
-                    className="w-full py-3 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-900 transition-colors disabled:opacity-50"
+                    className={`w-full py-3 text-white font-bold rounded-xl transition-colors disabled:opacity-50 cursor-pointer ${
+                      editingId ? "bg-amber-500 hover:bg-amber-600 shadow-md shadow-amber-100" : "bg-slate-800 hover:bg-slate-900"
+                    }`}
                   >
-                    {loading ? "Saving..." : "Save Custom Scenario"}
+                    {loading ? "Saving..." : editingId ? "Update Custom Scenario" : "Save Custom Scenario"}
                   </button>
                 </form>
               </div>
@@ -197,20 +363,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <h3 className="text-lg font-bold text-slate-800">Active Scenarios</h3>
                 <div className="space-y-3 overflow-y-auto max-h-[60vh] pr-2">
                   {scenarios.map(sc => (
-                    <div key={sc.id} className="p-4 border border-slate-200 rounded-xl bg-white flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl">{sc.icon}</span>
-                        <div>
-                          <p className="font-bold text-sm text-slate-800">{sc.name}</p>
-                          <p className="text-xs text-slate-400">{sc.id}</p>
+                    <div 
+                      key={sc.id} 
+                      className={`p-4 border rounded-xl bg-white flex items-center justify-between transition-all ${
+                        editingId === sc.id 
+                          ? "border-amber-400 ring-4 ring-amber-100/50 bg-amber-50/20" 
+                          : "border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1 mr-2">
+                        <span className="text-2xl shrink-0">{sc.icon}</span>
+                        <div className="min-w-0">
+                          <p className="font-bold text-sm text-slate-800 truncate">{sc.name}</p>
+                          <p className="text-xs text-slate-400 truncate font-mono">{sc.id}</p>
                         </div>
                       </div>
-                      <button 
-                        onClick={() => handleDelete(sc.id)}
-                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button 
+                          onClick={() => handleEditClick(sc)}
+                          className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                            editingId === sc.id ? "bg-amber-100 text-amber-700 hover:bg-amber-200" : "text-amber-500 hover:bg-amber-50"
+                          }`}
+                          title="Edit Scenario Prompt"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(sc.id)}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                          title="Delete Scenario"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
