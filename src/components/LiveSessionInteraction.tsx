@@ -76,12 +76,13 @@ interface LiveSessionProps {
   scenarioId: string | null;
   pdfStoreId?: string | null;
   selectedVoice?: string;
+  speakSlowly?: boolean;
   onTranscript: (text: string, isModel: boolean, isFinal: boolean) => void;
   onSessionEnd?: (durationSec: number, userAudio?: string) => void;
   isTimeExhausted?: boolean;
 }
 
-export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTutor, scenarioId, pdfStoreId, selectedVoice = "Zephyr", onTranscript, onSessionEnd, isTimeExhausted }) => {
+export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTutor, scenarioId, pdfStoreId, selectedVoice = "Zephyr", speakSlowly = false, onTranscript, onSessionEnd, isTimeExhausted }) => {
   const { user } = useContext(AuthContext);
   const [micState, setMicState] = useState<MicState>("ready");
   const [error, setError] = useState<string | null>(null);
@@ -273,7 +274,11 @@ export const LiveSessionInteraction: React.FC<LiveSessionProps> = ({ selectedTut
 
       // Setup WebSocket
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      let wsUrl = `${protocol}//${window.location.host}/live?tutorName=${encodeURIComponent(selectedTutor)}&voice=${selectedVoice}`;
+      let voiceArg = selectedVoice;
+      if (speakSlowly && !voiceArg.toLowerCase().includes("-slow")) {
+        voiceArg += "-slow";
+      }
+      let wsUrl = `${protocol}//${window.location.host}/live?tutorName=${encodeURIComponent(selectedTutor)}&voice=${voiceArg}`;
       if (scenarioId) {
         wsUrl += `&scenarioId=${encodeURIComponent(scenarioId)}`;
       }

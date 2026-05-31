@@ -16,6 +16,8 @@ interface ScenarioSlickSelectorProps {
   onTranscript: (text: string, isModel: boolean, isFinal: boolean) => void;
   onSessionEnd?: (durationSec: number) => void;
   isTimeExhausted?: boolean;
+  speakSlowly: boolean;
+  setSpeakSlowly: (val: boolean) => void;
 }
 
 export const ScenarioSlickSelector: React.FC<ScenarioSlickSelectorProps> = ({
@@ -29,6 +31,8 @@ export const ScenarioSlickSelector: React.FC<ScenarioSlickSelectorProps> = ({
   onTranscript,
   onSessionEnd,
   isTimeExhausted,
+  speakSlowly,
+  setSpeakSlowly,
 }) => {
   const { user } = useContext(AuthContext);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
@@ -92,22 +96,36 @@ export const ScenarioSlickSelector: React.FC<ScenarioSlickSelectorProps> = ({
           <p className="text-xs text-slate-500 font-medium">নির্দিষ্ট শব্দভান্ডার শিখতে পরিস্থিতি নির্বাচন করুন এবং এআই এর সাথে কথোপকথন শুরু করুন।</p>
         </div>
 
-        {/* Compact Voice Selector Dropdown */}
-        <div className="relative shrink-0 z-20">
-          <button
-            onClick={() => setIsVoiceDropdownOpen(!isVoiceDropdownOpen)}
-            type="button"
-            className="flex items-center gap-2 px-3.5 py-1.5 hover:bg-blue-100/80 bg-blue-50/80 border border-blue-200/50 rounded-2xl text-left cursor-pointer transition-all duration-300"
-          >
-            <Sparkles className="w-4 h-4 text-blue-500 animate-pulse" />
-            <div className="flex flex-col leading-none">
-              <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-0.5">কণ্ঠস্বর (Voice)</span>
-              <span className="text-xs font-bold text-blue-700 font-sans flex items-center gap-1">
-                {selectedVoiceObj.emoji} {selectedVoiceObj.id}
-              </span>
-            </div>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 ml-1 shrink-0" />
-          </button>
+        <div className="flex items-center gap-3 shrink-0 flex-wrap">
+          {/* Custom Checkbox for Speech Speed */}
+          <label className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer select-none bg-blue-50/60 dark:bg-slate-800/60 p-2 px-3 rounded-2xl border border-blue-200/40 dark:border-slate-700/60 transition-all hover:bg-blue-100/60 dark:hover:bg-slate-700/60 shadow-xs">
+            <input
+              type="checkbox"
+              checked={speakSlowly}
+              onChange={(e) => setSpeakSlowly(e.target.checked)}
+              className="w-4 h-4 text-blue-600 border-slate-300 rounded-md focus:ring-blue-500 cursor-pointer"
+            />
+            <span className="flex items-center gap-1 font-sans">
+              🐢 ধীরগতিতে উত্তর (Slow voice)
+            </span>
+          </label>
+
+          {/* Compact Voice Selector Dropdown */}
+          <div className="relative z-20">
+            <button
+              onClick={() => setIsVoiceDropdownOpen(!isVoiceDropdownOpen)}
+              type="button"
+              className="flex items-center gap-2 px-3.5 py-1.5 hover:bg-blue-100/80 bg-blue-50/80 border border-blue-200/50 rounded-2xl text-left cursor-pointer transition-all duration-300"
+            >
+              <Sparkles className="w-4 h-4 text-blue-500 animate-pulse" />
+              <div className="flex flex-col leading-none">
+                <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-0.5">কণ্ঠস্বর (Voice)</span>
+                <span className="text-xs font-bold text-blue-700 font-sans flex items-center gap-1">
+                  {selectedVoiceObj.emoji} {selectedVoiceObj.id}
+                </span>
+              </div>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 ml-1 shrink-0" />
+            </button>
 
           {isVoiceDropdownOpen && (
             <div className="absolute right-0 mt-2 w-60 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-100/90 py-2 z-50 flex flex-col gap-0.5">
@@ -142,6 +160,7 @@ export const ScenarioSlickSelector: React.FC<ScenarioSlickSelectorProps> = ({
               })}
             </div>
           )}
+        </div>
         </div>
 
         {selectedScenarioId && (
@@ -229,6 +248,7 @@ export const ScenarioSlickSelector: React.FC<ScenarioSlickSelectorProps> = ({
               scenarioId={selectedScenarioId}
               pdfStoreId={pdfStoreId}
               selectedVoice={selectedVoice}
+              speakSlowly={speakSlowly}
               onTranscript={onTranscript}
               onSessionEnd={onSessionEnd}
               isTimeExhausted={isTimeExhausted}

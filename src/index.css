@@ -95,4 +95,110 @@
 .wave-bar:nth-child(7) { animation: listening-wave 1.2s infinite ease-in-out 0.6s; }
 .wave-bar:nth-child(8) { animation: listening-wave 1.2s infinite ease-in-out 0.7s; }
 
+/* Dark Mode Overrides for Exquisite Aesthetic Pairings */
+.dark {
+  background-color: #0d121f !important;
+  color: #e2e8f0 !important;
+}
+
+.dark .glass-panel {
+  background: rgba(15, 23, 42, 0.72) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: #f8fafc !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35) !important;
+}
+
+.dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6 {
+  color: #f8fafc !important;
+}
+
+.dark p, .dark span:not(.no-dark), .dark label, .dark div:not(.no-dark) > p {
+  color: #94a3b8 !important;
+}
+
+.dark select, .dark input, .dark textarea {
+  background-color: #1e293b !important;
+  color: #f1f5f9 !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.dark select option {
+  background-color: #1e293b !important;
+  color: #f1f5f9 !important;
+}
+
+/* Custom dark card styling overrides for components */
+.dark .bg-white\/40, .dark .bg-white\/50, .dark .bg-white\/60, .dark .bg-white {
+  background-color: rgba(30, 41, 59, 0.45) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark .text-slate-800, .dark .text-slate-900, .dark .text-slate-755, .dark .text-slate-700 {
+  color: #e2e8f0 !important;
+}
+
+.dark .text-slate-500, .dark .text-slate-600 {
+  color: #94a3b8 !important;
+}
+
+.dark .bg-blue-50 {
+  background-color: rgba(30, 41, 59, 0.8) !important;
+  color: #38bdf8 !important;
+}
+
+.dark .text-blue-700, .dark .text-blue-600 {
+  color: #38bdf8 !important;
+}
+
+.dark .border-blue-200\/50, .dark .border-blue-200 {
+  border-color: rgba(56, 189, 248, 0.22) !important;
+}
+
+.dark .border-white {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark .shadow-sm {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25) !important;
+}
+
+/* For active scenario list in dark mode */
+.dark .hover\:bg-blue-50\/40:hover {
+  background-color: rgba(30, 41, 59, 0.35) !important;
+}
+
+.dark .bg-blue-50\/50 {
+  background-color: rgba(14, 116, 144, 0.2) !important;
+  border-color: rgba(14, 116, 144, 0.45) !important;
+}
+
+.dark .text-emerald-600 {
+  color: #34d399 !important;
+}
+
+.dark .bg-emerald-50 {
+  background-color: rgba(52, 211, 153, 0.1) !important;
+  color: #34d399 !important;
+}
+
+/* Style the file input button & general controls in dark mode */
+.dark input[type="file"]::file-selector-button {
+  background-color: rgba(30, 41, 59, 0.7) !important;
+  color: #38bdf8 !important;
+}
+
+.dark .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.1) !important;
+  border-color: rgba(245, 158, 11, 0.2) !important;
+  color: #fbbf24 !important;
+}
+
+.dark .text-amber-800 {
+  color: #fbbf24 !important;
+}
+
+.dark select {
+  color-scheme: dark;
+}
+
 

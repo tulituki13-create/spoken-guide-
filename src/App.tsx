@@ -20,6 +20,36 @@ export default function App() {
 
   const [studentName, setStudentName] = useState("Guest");
 
+  // --- Theme (Day/Dark) Mode State ---
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("theme") === "dark";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("theme", isDarkMode ? "dark" : "light");
+    } catch {}
+  }, [isDarkMode]);
+
+  // --- Speech Speed Setting State ---
+  const [speakSlowly, setSpeakSlowly] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("speak_slowly") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("speak_slowly", speakSlowly ? "true" : "false");
+    } catch {}
+  }, [speakSlowly]);
+
   // --- Scenarios & Tutor State ---
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
   const [selectedTutor, setSelectedTutor] = useState("Buddy");
@@ -315,13 +345,13 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F0F9FF] text-slate-800 p-4 md:p-8 flex flex-col justify-between relative overflow-x-hidden" id="app-root">
+    <div className={`min-h-screen p-4 md:p-8 flex flex-col justify-between relative overflow-x-hidden transition-all duration-300 ${isDarkMode ? 'dark bg-[#0d121f] text-slate-100' : 'bg-[#F0F9FF] text-slate-800'}`} id="app-root">
       
       {/* Background Animated Ping Concentrics from Artistic Flair theme */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full flex items-center justify-center opacity-15 pointer-events-none z-0">
-        <div className="w-[600px] h-[600px] rounded-full border border-blue-300 animate-ping absolute" style={{ animationDuration: "6s" }}></div>
-        <div className="w-[400px] h-[400px] rounded-full border border-blue-400 animate-ping absolute" style={{ animationDuration: "9s" }}></div>
-        <div className="w-[250px] h-[250px] rounded-full border border-blue-400 animate-ping absolute" style={{ animationDuration: "12s" }}></div>
+        <div className={`w-[600px] h-[600px] rounded-full border ${isDarkMode ? 'border-sky-500/10' : 'border-blue-300'} animate-ping absolute`} style={{ animationDuration: "6s" }}></div>
+        <div className={`w-[400px] h-[400px] rounded-full border ${isDarkMode ? 'border-sky-500/10' : 'border-blue-400'} animate-ping absolute`} style={{ animationDuration: "9s" }}></div>
+        <div className={`w-[250px] h-[250px] rounded-full border ${isDarkMode ? 'border-indigo-500/10' : 'border-blue-400'} animate-ping absolute`} style={{ animationDuration: "12s" }}></div>
       </div>
 
       <div className="w-full max-w-6xl mx-auto flex flex-col gap-6 relative z-10">
@@ -336,6 +366,8 @@ export default function App() {
           anonTimeLeft={Math.max(0, 180 - anonymousChatTime)}
           onAuthClick={() => setIsAuthModalOpen(true)}
           onLogout={logout}
+          isDarkMode={isDarkMode}
+          setIsDarkMode={setIsDarkMode}
         />
 
         {/* Information feedback notices */}
@@ -394,6 +426,8 @@ export default function App() {
             onTranscript={onLiveTranscript}
             onSessionEnd={handleSessionEnd}
             isTimeExhausted={isTimeExhausted}
+            speakSlowly={speakSlowly}
+            setSpeakSlowly={setSpeakSlowly}
           />
         </div>
 

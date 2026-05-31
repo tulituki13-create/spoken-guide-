@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Sparkles, Edit2, Check, UserCircle, Clock, ShieldCheck, UserPlus } from "lucide-react";
+import { Sparkles, Edit2, Check, UserCircle, Clock, ShieldCheck, UserPlus, Sun, Moon } from "lucide-react";
 import { User } from "../AuthContext";
 
 interface WelcomeHeaderProps {
@@ -11,6 +11,8 @@ interface WelcomeHeaderProps {
   anonTimeLeft: number;
   onAuthClick: () => void;
   onLogout: () => void;
+  isDarkMode: boolean;
+  setIsDarkMode: (val: boolean) => void;
 }
 
 export const WelcomeHeader: React.FC<WelcomeHeaderProps> = ({
@@ -21,7 +23,9 @@ export const WelcomeHeader: React.FC<WelcomeHeaderProps> = ({
   user,
   anonTimeLeft,
   onAuthClick,
-  onLogout
+  onLogout,
+  isDarkMode,
+  setIsDarkMode
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [tempName, setTempName] = useState(studentName);
@@ -98,12 +102,25 @@ export const WelcomeHeader: React.FC<WelcomeHeaderProps> = ({
               </div>
               
               <div className="flex items-center gap-2">
+                  {/* Sun / Moon Toggle */}
+                  <button
+                    onClick={() => setIsDarkMode(!isDarkMode)}
+                    className="p-2 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white/80 dark:bg-slate-800/80 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all flex items-center justify-center cursor-pointer text-amber-500 dark:text-blue-400 shrink-0"
+                    title={isDarkMode ? "দিনের মোড করুন" : "রাতের মোড করুন"}
+                  >
+                    {isDarkMode ? (
+                      <Sun className="w-4 h-4 text-amber-400 animate-spin-slow" />
+                    ) : (
+                      <Moon className="w-4 h-4 text-violet-400" />
+                    )}
+                  </button>
+
                   {!user ? (
-                    <button onClick={onAuthClick} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition">
+                    <button onClick={onAuthClick} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition whitespace-nowrap">
                       <UserPlus className="w-4 h-4" /> Login / Signup
                     </button>
                   ) : (
-                    <button onClick={onLogout} className="text-xs font-bold text-slate-500 hover:text-slate-800 transition">
+                    <button onClick={onLogout} className="text-xs font-bold text-slate-500 hover:text-slate-800 transition px-2 py-1 select-none">
                       Logout
                     </button>
                   )}
