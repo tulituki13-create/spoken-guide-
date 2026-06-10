@@ -1,6 +1,6 @@
 {
-  "name": "Buddy - English Voice Tutor",
-  "description": "A warm, patient, and encouraging AI English tutor for free-hand live conversational practice.",
+  "name": "Spoken English Buddy Portal",
+  "description": "A warm, patient, and encouraging AI English tutor for free-hand live conversational practice and guidance.",
   "requestFramePermissions": [
     "microphone"
   ],

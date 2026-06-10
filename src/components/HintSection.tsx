@@ -117,7 +117,7 @@ export const HintSection: React.FC<HintSectionProps> = ({
             onClick={() => fetchSmartHints(true)}
             disabled={isLoading}
             className="p-1 px-3 rounded-full text-xxs font-mono font-bold text-blue-600 hover:bg-blue-100/50 border border-blue-200/40 disabled:opacity-50 flex items-center gap-1.5 transition-colors cursor-pointer"
-            title="Force refresh high-fidelity suggestions via Gemini AI"
+            title="Force refresh high-fidelity suggestions via AI Coach"
           >
             <RotateCw className={`w-3 h-3 ${isLoading ? "animate-spin" : ""}`} />
             REFRESH CUES

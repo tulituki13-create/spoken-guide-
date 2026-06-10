@@ -22,5 +22,17 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "app",
+    "*.js",
+    "*.cjs",
+    "build_subtopics.ts",
+    "fix_admin.ts",
+    "inspect-env.ts",
+    "test-*.ts",
+    "test_db.ts"
+  ]
 }

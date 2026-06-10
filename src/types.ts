@@ -53,6 +53,7 @@ export interface Scenario {
   id: string;
   name: string;
   icon: string;
+  category?: string;
   description: string;
   context: string;
   vocabulary: string[];

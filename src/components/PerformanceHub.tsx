@@ -12,7 +12,8 @@ import {
   Activity, 
   BookOpen, 
   ThumbsUp, 
-  Mic
+  Mic,
+  Download
 } from "lucide-react";
 
 export interface PerformanceRecord {
@@ -44,6 +45,7 @@ export const PerformanceHub: React.FC<PerformanceHubProps> = ({
 }) => {
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [showConfirmClear, setShowConfirmClear] = useState<boolean>(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   // Default select the latest record
   const activeRecord = records.find(r => r.id === selectedRecordId) || records[0];
@@ -64,6 +66,124 @@ export const PerformanceHub: React.FC<PerformanceHubProps> = ({
     return Math.round((record.fluencyScore + record.vocabularyScore + record.grammarScore + record.pronunciationScore) / 4);
   };
 
+  const handleDownloadWeeklySummary = async () => {
+    setIsGeneratingPdf(true);
+    try {
+      const { jsPDF } = await import('jspdf');
+      
+      const now = new Date();
+      // Filter recent 7 days
+      const last7DaysRecords = records.filter(rec => {
+        const datePart = rec.timestamp.split(" ")[0];
+        const parts = datePart.split('/'); // dd/mm/yyyy
+        let recDate;
+        if (parts.length === 3) {
+          // Attempt to parse manually to avoid format ambiguities
+          recDate = new Date(+parts[2], +parts[1] - 1, +parts[0]);
+        } else {
+          recDate = new Date(datePart);
+        }
+        
+        if (isNaN(recDate.getTime())) return true;
+        
+        const diffTime = Math.abs(now.getTime() - recDate.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+        return diffDays <= 7;
+      });
+
+      const summaryRecords = last7DaysRecords.length > 0 ? last7DaysRecords : records.slice(0, 7);
+
+      const totalPracticeMins = Math.floor(summaryRecords.reduce((acc, r) => acc + r.duration, 0) / 60);
+      const avgFluency = Math.round(summaryRecords.reduce((acc, r) => acc + r.fluencyScore, 0) / summaryRecords.length) || 0;
+      const avgVocab = Math.round(summaryRecords.reduce((acc, r) => acc + r.vocabularyScore, 0) / summaryRecords.length) || 0;
+      const avgGrammar = Math.round(summaryRecords.reduce((acc, r) => acc + r.grammarScore, 0) / summaryRecords.length) || 0;
+
+      let allLearningPoints: string[] = [];
+      summaryRecords.forEach(r => {
+        if (r.learningPoints) {
+          allLearningPoints = [...allLearningPoints, ...r.learningPoints];
+        }
+      });
+      const topLearningPoints = allLearningPoints.slice(0, 10);
+      
+      const sortedByVocab = [...summaryRecords].sort((a,b) => b.vocabularyScore - a.vocabularyScore);
+      const mostImprovedVocabScore = sortedByVocab[0]?.vocabularyScore || 0;
+
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pageEl = document.createElement('div');
+      pageEl.style.width = '794px';
+      pageEl.style.height = '1120px';
+      pageEl.style.padding = '40px';
+      pageEl.style.boxSizing = 'border-box';
+      pageEl.style.backgroundColor = '#f8fafc';
+      pageEl.style.display = 'flex';
+      pageEl.style.flexDirection = 'column';
+      pageEl.style.fontFamily = "'Inter', system-ui, sans-serif";
+      pageEl.className = 'print-page pdf-force-light';
+
+      pageEl.innerHTML = `
+        <div style="background: linear-gradient(135deg, #4f46e5 0%, #312e81 100%); border-radius: 16px; padding: 28px; color: #ffffff; margin-bottom: 26px;">
+          <h1 style="font-size: 26px; font-weight: 900; margin: 0 0 6px 0; color: #ffffff;">Weekly Performance Summary</h1>
+          <p style="font-size: 13.5px; opacity: 0.95; margin: 0; color: #ffffff;">Your aggregated progress from the last 7 days of practice</p>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;">
+          <div style="background: #ffffff; border: 2px solid #e2e8f0; border-radius: 12px; padding: 20px; text-align: center;">
+            <p style="font-size: 12px; font-weight: 800; color: #64748b; text-transform: uppercase;">Total Practice Time</p>
+            <p style="font-size: 32px; font-weight: 900; color: #4f46e5; margin: 8px 0;">${totalPracticeMins}<span style="font-size: 16px; color: #818cf8;"> mins</span></p>
+            <span style="font-size: 11px; font-weight: 600; color: #475569; background: #f1f5f9; padding: 4px 8px; border-radius: 6px;">Based on ${summaryRecords.length} Sessions</span>
+          </div>
+          <div style="background: #ffffff; border: 2px solid #e2e8f0; border-radius: 12px; padding: 20px; text-align: center;">
+            <p style="font-size: 12px; font-weight: 800; color: #64748b; text-transform: uppercase;">Average Fluency</p>
+            <p style="font-size: 32px; font-weight: 900; color: #059669; margin: 8px 0;">${avgFluency}%</p>
+            <span style="font-size: 11px; font-weight: 600; color: #047857; background: #d1fae5; padding: 4px 8px; border-radius: 6px; border: 1px solid #6ee7b7;">Consistently Progressing</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;">
+          <div style="background: #ffffff; border: 2px solid #e2e8f0; border-radius: 12px; padding: 18px;">
+            <p style="font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase;">Average Grammar</p>
+            <p style="font-size: 26px; font-weight: 900; color: #ea580c; margin: 6px 0 0 0;">${avgGrammar}%</p>
+          </div>
+          <div style="background: #ffffff; border: 2px solid #e2e8f0; border-radius: 12px; padding: 18px;">
+            <p style="font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase;">Most Improved Vocabulary Score</p>
+            <p style="font-size: 26px; font-weight: 900; color: #7c3aed; margin: 6px 0 0 0;">${mostImprovedVocabScore}%</p>
+          </div>
+        </div>
+
+        <div style="background: #ffffff; border: 2px solid #e2e8f0; border-radius: 12px; padding: 24px; flex-grow: 1;">
+          <h3 style="font-size: 16px; font-weight: 900; color: #1e293b; margin: 0 0 16px 0; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px;">Top Learning Points & Feedback</h3>
+          <ul style="margin: 0; padding-left: 20px; color: #334155; font-size: 13.5px; line-height: 1.65; font-weight: 500;">
+            ${topLearningPoints.map(point => `<li style="margin-bottom: 12px;"><strong>✦</strong> ${point}</li>`).join('')}
+            ${topLearningPoints.length === 0 ? '<li style="color: #64748b; font-style: italic; list-style: none;">No learning points recorded yet.</li>' : ''}
+          </ul>
+        </div>
+
+        <div style="margin-top: auto; padding-top: 18px; border-top: 2.5px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+           <span style="font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Spoken Guide AI</span>
+           <span style="font-size: 11px; font-weight: 800; color: #64748b; background: #f1f5f9; padding: 3px 8px; border-radius: 6px;">Generated: ${now.toLocaleDateString()}</span>
+        </div>
+      `;
+
+      document.body.appendChild(pageEl);
+
+      await pdf.html(pageEl, {
+        callback: function (doc) {
+          doc.save('Weekly-Spoken-Performance.pdf');
+          document.body.removeChild(pageEl);
+          setIsGeneratingPdf(false);
+        },
+        x: 0,
+        y: 0,
+        width: 210, 
+        windowWidth: 794
+      });
+    } catch (error) {
+      console.error("PDF generation failed", error);
+      setIsGeneratingPdf(false);
+    }
+  };
+
   return (
     <div className="w-full mt-8" id="performance-analysis-section">
       {/* SECTION HEADER */}
@@ -80,7 +200,15 @@ export const PerformanceHub: React.FC<PerformanceHubProps> = ({
         </div>
 
         {records.length > 0 && (
-          <div className="flex items-center gap-2 self-start md:self-auto shrink-0 font-sans">
+          <div className="flex flex-wrap items-center gap-2 self-start md:self-auto shrink-0 font-sans">
+            <button
+              onClick={handleDownloadWeeklySummary}
+              disabled={isGeneratingPdf}
+              className="flex items-center gap-1.5 text-3xs font-mono font-bold text-indigo-600 hover:text-indigo-800 disabled:opacity-50 transition-all cursor-pointer bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl border border-indigo-100"
+            >
+              <Download className="w-3.5 h-3.5" />
+              {isGeneratingPdf ? 'Generating...' : 'সাপ্তাহিক রিপোর্ট (Weekly Summary)'}
+            </button>
             {showConfirmClear ? (
               <div className="flex items-center gap-1.5 bg-red-50 border border-red-100 rounded-xl p-1 animate-fade-in shadow-sm">
                 <span className="text-[10px] text-red-700 font-bold px-2">মুছে ফেলবেন?</span>
@@ -106,7 +234,7 @@ export const PerformanceHub: React.FC<PerformanceHubProps> = ({
                 className="flex items-center gap-1.5 text-3xs font-mono font-bold text-red-500 hover:text-red-700 transition-all cursor-pointer bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-xl border border-red-100"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                ইতিহাস মুছুন (Clear All History)
+                ইতিহাস মুছুন
               </button>
             )}
           </div>
@@ -120,7 +248,7 @@ export const PerformanceHub: React.FC<PerformanceHubProps> = ({
             <Activity className="w-5 h-5 text-blue-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
           </div>
           <span className="text-sm font-bold text-slate-700">কথোপকথন বিশ্লেষণ করা হচ্ছে...</span>
-          <p className="text-xxs text-slate-400 mt-1 font-medium">Gemini আপনার উচ্চারণ ও ব্যাকরণ মূল্যায়ন করছে, কিছু মুহূর্ত অপেক্ষা করুন। (Analyzing conversation content...)</p>
+          <p className="text-xxs text-slate-400 mt-1 font-medium">AI Coach আপনার উচ্চারণ ও ব্যাকরণ মূল্যায়ন করছে, কিছু মুহূর্ত অপেক্ষা করুন। (Analyzing conversation content...)</p>
         </div>
       ) : records.length === 0 ? (
         /* NO RECORDS PLACEHOLDER CARD */
